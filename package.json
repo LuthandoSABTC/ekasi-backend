@@ -1,0 +1,10 @@
+	"ekasi-backend"
+version	"1.0.0"
+description	"Bitcoin Ekasi Blink API proxy backend"
+main	"server.js"
+scripts	
+start	"node server.js"
+dependencies	
+cors	"^2.8.5"
+express	"^4.18.2"
+node-fetch	"^2.7.0"
