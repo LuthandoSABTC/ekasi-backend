@@ -6,31 +6,28 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-const BLINK_URL = "https://api.blink.sv/graphql";
-
 app.get("/", (req, res) => res.json({ status: "Bitcoin Ekasi Backend Running ⚡" }));
 
-// Test BTCPay connection
+// Test BTCPay connection — use Lightning info endpoint directly
 app.post("/test", async (req, res) => {
   const { btcpayUrl, apiKey, storeId } = req.body;
   if (!btcpayUrl || !apiKey || !storeId) return res.status(400).json({ error: "Missing fields" });
   try {
-    // Try the store endpoint first — just check if the store exists
-    const r = await fetch(`${btcpayUrl}/api/v1/stores/${storeId}`, {
+    const r = await fetch(`${btcpayUrl}/api/v1/stores/${storeId}/lightning/BTC/info`, {
       headers: { "Authorization": `token ${apiKey}`, "Content-Type": "application/json" }
     });
     const text = await r.text();
-    console.log("BTCPay test response:", r.status, text);
+    console.log("BTCPay test:", r.status, text);
     let data;
     try { data = JSON.parse(text); } catch { data = { raw: text }; }
-    if (!r.ok) return res.status(r.status).json({ error: data.message || data.detail || text, status: r.status });
-    res.json({ success: true, storeName: data.name || data.id || "Connected" });
+    if (!r.ok) return res.status(r.status).json({ error: data.message || data.detail || text });
+    res.json({ success: true, nodeId: data.nodeURIs?.[0] || "Lightning node connected ⚡" });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });
 
-// Pay via Lightning address or LNURL
+// Pay via Lightning
 app.post("/pay", async (req, res) => {
   const { btcpayUrl, apiKey, storeId, destination, amount, memo } = req.body;
   if (!btcpayUrl || !apiKey || !storeId || !destination || !amount) {
@@ -48,7 +45,7 @@ app.post("/pay", async (req, res) => {
       })
     });
     const text = await r.text();
-    console.log("BTCPay pay response:", r.status, text);
+    console.log("BTCPay pay:", r.status, text);
     let data;
     try { data = JSON.parse(text); } catch { data = { raw: text }; }
     if (!r.ok) return res.status(r.status).json({ error: data.message || data.detail || text });
