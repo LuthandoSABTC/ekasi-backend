@@ -6,57 +6,54 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+const BLINK_URL = "https://api.blink.sv/graphql";
+
 app.get("/", (req, res) => res.json({ status: "Bitcoin Ekasi Backend Running ⚡" }));
 
 // Test BTCPay connection
 app.post("/test", async (req, res) => {
   const { btcpayUrl, apiKey, storeId } = req.body;
-  if (!btcpayUrl || !apiKey || !storeId) return res.status(400).json({ error: "Missing btcpayUrl, apiKey or storeId" });
+  if (!btcpayUrl || !apiKey || !storeId) return res.status(400).json({ error: "Missing fields" });
   try {
-    const r = await fetch(`${btcpayUrl}/api/v1/stores/${storeId}/lightning/BTC/info`, {
-      headers: { "Authorization": `token ${apiKey}` }
+    // Try the store endpoint first — just check if the store exists
+    const r = await fetch(`${btcpayUrl}/api/v1/stores/${storeId}`, {
+      headers: { "Authorization": `token ${apiKey}`, "Content-Type": "application/json" }
     });
-    const data = await r.json();
-    if (!r.ok) return res.status(400).json({ error: data.message || JSON.stringify(data) });
-    res.json({ success: true, nodeId: data.nodeURIs?.[0] || "Connected" });
+    const text = await r.text();
+    console.log("BTCPay test response:", r.status, text);
+    let data;
+    try { data = JSON.parse(text); } catch { data = { raw: text }; }
+    if (!r.ok) return res.status(r.status).json({ error: data.message || data.detail || text, status: r.status });
+    res.json({ success: true, storeName: data.name || data.id || "Connected" });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });
 
-// Pay a Lightning address or LNURL via BTCPay
+// Pay via Lightning address or LNURL
 app.post("/pay", async (req, res) => {
   const { btcpayUrl, apiKey, storeId, destination, amount, memo } = req.body;
   if (!btcpayUrl || !apiKey || !storeId || !destination || !amount) {
     return res.status(400).json({ error: "Missing required fields" });
   }
-
   try {
     console.log(`Paying ${amount} sats to ${destination}`);
-
     const r = await fetch(`${btcpayUrl}/api/v1/stores/${storeId}/lightning/BTC/pay`, {
       method: "POST",
-      headers: {
-        "Authorization": `token ${apiKey}`,
-        "Content-Type": "application/json"
-      },
+      headers: { "Authorization": `token ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        destination,          // Lightning address or LNURL
-        amount: String(amount * 1000), // BTCPay uses millisats
+        destination,
+        amount: String(amount * 1000),
         description: memo || "Bitcoin Ekasi Diploma Reward"
       })
     });
-
     const text = await r.text();
-    console.log("BTCPay response:", r.status, text);
-
+    console.log("BTCPay pay response:", r.status, text);
     let data;
     try { data = JSON.parse(text); } catch { data = { raw: text }; }
-
-    if (!r.ok) return res.status(400).json({ error: data.message || data.detail || text });
+    if (!r.ok) return res.status(r.status).json({ error: data.message || data.detail || text });
     res.json({ success: true, data });
   } catch (e) {
-    console.error("Pay error:", e.message);
     res.status(500).json({ error: e.message });
   }
 });
