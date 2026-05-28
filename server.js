@@ -1,48 +1,65 @@
 const express = require("express");
 const cors = require("cors");
 const fetch = require("node-fetch");
- 
+
 const app = express();
 app.use(cors());
 app.use(express.json());
- 
-const BLINK_URL = "https://api.blink.sv/graphql";
- 
+
 app.get("/", (req, res) => res.json({ status: "Bitcoin Ekasi Backend Running ⚡" }));
- 
-app.post("/blink", async (req, res) => {
-  const apiKey = req.headers["x-api-key"];
-  if (!apiKey) return res.status(401).json({ error: "Missing API key" });
- 
+
+// Test BTCPay connection
+app.post("/test", async (req, res) => {
+  const { btcpayUrl, apiKey, storeId } = req.body;
+  if (!btcpayUrl || !apiKey || !storeId) return res.status(400).json({ error: "Missing btcpayUrl, apiKey or storeId" });
   try {
-    const response = await fetch(BLINK_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-API-KEY": apiKey },
-      body: JSON.stringify(req.body),
+    const r = await fetch(`${btcpayUrl}/api/v1/stores/${storeId}/lightning/BTC/info`, {
+      headers: { "Authorization": `token ${apiKey}` }
     });
- 
-    const text = await response.text();
-    console.log("Blink raw response:", text);
- 
-    let data;
-    try { data = JSON.parse(text); }
-    catch { return res.status(500).json({ error: "Invalid JSON from Blink", raw: text }); }
- 
-    // Normalize payment status — treat SUCCESS/ALREADY_PAID/PENDING all as success
-    const payResult = data?.data?.lnAddressPaymentSend;
-    if (payResult) {
-      console.log("Payment status from Blink:", payResult.status, payResult.errors);
-      if (["SUCCESS", "ALREADY_PAID", "PENDING"].includes(payResult.status)) {
-        return res.json({ data: { lnAddressPaymentSend: { status: "SUCCESS", errors: [] } } });
-      }
-    }
- 
-    res.json(data);
-  } catch (err) {
-    console.error("Backend error:", err.message);
-    res.status(500).json({ error: err.message });
+    const data = await r.json();
+    if (!r.ok) return res.status(400).json({ error: data.message || JSON.stringify(data) });
+    res.json({ success: true, nodeId: data.nodeURIs?.[0] || "Connected" });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
   }
 });
- 
+
+// Pay a Lightning address or LNURL via BTCPay
+app.post("/pay", async (req, res) => {
+  const { btcpayUrl, apiKey, storeId, destination, amount, memo } = req.body;
+  if (!btcpayUrl || !apiKey || !storeId || !destination || !amount) {
+    return res.status(400).json({ error: "Missing required fields" });
+  }
+
+  try {
+    console.log(`Paying ${amount} sats to ${destination}`);
+
+    const r = await fetch(`${btcpayUrl}/api/v1/stores/${storeId}/lightning/BTC/pay`, {
+      method: "POST",
+      headers: {
+        "Authorization": `token ${apiKey}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        destination,          // Lightning address or LNURL
+        amount: String(amount * 1000), // BTCPay uses millisats
+        description: memo || "Bitcoin Ekasi Diploma Reward"
+      })
+    });
+
+    const text = await r.text();
+    console.log("BTCPay response:", r.status, text);
+
+    let data;
+    try { data = JSON.parse(text); } catch { data = { raw: text }; }
+
+    if (!r.ok) return res.status(400).json({ error: data.message || data.detail || text });
+    res.json({ success: true, data });
+  } catch (e) {
+    console.error("Pay error:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => console.log(`Ekasi backend running on port ${PORT}`));
