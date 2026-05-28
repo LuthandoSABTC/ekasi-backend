@@ -1,7 +1,7 @@
 {
   "name": "ekasi-backend",
-  "version": "1.0.0",
-  "description": "Bitcoin Ekasi Blink proxy backend",
+  "version": "2.0.0",
+  "description": "Bitcoin Ekasi BTCPay proxy backend",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
