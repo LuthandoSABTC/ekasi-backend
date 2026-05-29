@@ -66,8 +66,7 @@ app.post("/pay", async (req, res) => {
           input: {
             walletId: btcWallet.id,
             lnAddress: destination,
-            amount: parseInt(amount),
-            memo: memo || "Bitcoin Ekasi Diploma Reward"
+            amount: parseInt(amount)
           }
         }
       })
