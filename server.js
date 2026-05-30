@@ -8,9 +8,60 @@ app.use(express.json());
 
 const BLINK_URL = "https://api.blink.sv/graphql";
 
+// ── Supabase config ──
+const SUPABASE_URL = "https://bnteowvyioptlvohyert.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJudGVvd3Z5aW9wdGx2b2h5ZXJ0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAwNTg2NTUsImV4cCI6MjA5NTYzNDY1NX0._-PZgmwe7CGi9aDeoOh_LsauaRru6LGgxxVZj9pv0MY";
+
+async function supabase(method, table, body=null, params='') {
+  const url = `${SUPABASE_URL}/rest/v1/${table}${params}`;
+  const headers = {
+    'apikey': SUPABASE_KEY,
+    'Authorization': `Bearer ${SUPABASE_KEY}`,
+    'Content-Type': 'application/json',
+    'Prefer': 'return=representation'
+  };
+  const res = await fetch(url, { method, headers, body: body ? JSON.stringify(body) : null });
+  const text = await res.text();
+  console.log(`Supabase ${method} ${table}:`, res.status, text.slice(0,200));
+  if (!res.ok) throw new Error(text);
+  return text ? JSON.parse(text) : [];
+}
+
 app.get("/", (req, res) => res.json({ status: "Bitcoin Ekasi Backend Running ⚡" }));
 
-// Test connection + get wallet info
+// ── Supabase proxy endpoints ──
+app.get("/db/:table", async (req, res) => {
+  try {
+    const params = req.url.replace(`/db/${req.params.table}`, '') || '';
+    const data = await supabase('GET', req.params.table, null, params);
+    res.json(data);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post("/db/:table", async (req, res) => {
+  try {
+    const data = await supabase('POST', req.params.table, req.body);
+    res.json(data);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.patch("/db/:table", async (req, res) => {
+  try {
+    const params = req.url.replace(`/db/${req.params.table}`, '') || '';
+    const data = await supabase('PATCH', req.params.table, req.body, params);
+    res.json(data);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete("/db/:table", async (req, res) => {
+  try {
+    const params = req.url.replace(`/db/${req.params.table}`, '') || '';
+    await supabase('DELETE', req.params.table, null, params);
+    res.json({ success: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Blink test ──
 app.post("/test", async (req, res) => {
   const { apiKey } = req.body;
   if (!apiKey) return res.status(400).json({ error: "Missing API key" });
@@ -26,50 +77,14 @@ app.post("/test", async (req, res) => {
     const btc = wallets.find(w => w.walletCurrency === "BTC");
     if (!btc) return res.status(400).json({ error: "No BTC wallet found" });
     res.json({ success: true, balance: btc.balance, walletId: btc.id });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
+  } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-// Decode bech32 LNURL to URL
-function decodeLnurl(lnurl) {
-  const decoded = Buffer.from(
-    lnurl.toLowerCase().replace("lightning:", "").replace("lnurl1", ""),
-    "base64"
-  );
-  // Use proper bech32 decode
-  const chars = "qpzry9x8gf2tvdw0s3jn54khce6mua7l";
-  const data = [];
-  const str = lnurl.toLowerCase().replace("lightning:", "");
-  // Find separator
-  const sep = str.lastIndexOf("1");
-  const dataStr = str.slice(sep + 1);
-  for (const c of dataStr) {
-    const val = chars.indexOf(c);
-    if (val === -1) continue;
-    data.push(val);
-  }
-  // Convert 5-bit to 8-bit
-  const bytes = [];
-  let acc = 0, bits = 0;
-  for (const val of data.slice(0, -6)) {
-    acc = (acc << 5) | val;
-    bits += 5;
-    while (bits >= 8) {
-      bits -= 8;
-      bytes.push((acc >> bits) & 0xff);
-    }
-  }
-  return Buffer.from(bytes).toString("utf8");
-}
-
-// Pay via Lightning address OR LNURL (for Bolt NFC cards)
+// ── Blink pay ──
 app.post("/pay", async (req, res) => {
-  const { apiKey, destination, amount, memo } = req.body;
+  const { apiKey, destination, amount } = req.body;
   if (!apiKey || !destination || !amount) return res.status(400).json({ error: "Missing fields" });
-
   try {
-    // Get BTC wallet ID
     const meRes = await fetch(BLINK_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-API-KEY": apiKey },
@@ -81,103 +96,70 @@ app.post("/pay", async (req, res) => {
     const btcWallet = wallets.find(w => w.walletCurrency === "BTC");
     if (!btcWallet) return res.status(400).json({ error: "No BTC wallet found" });
 
-    const sats = parseInt(amount);
-    const dest = destination.trim();
-    const isLnurl = dest.toLowerCase().startsWith("lnurl") || dest.toLowerCase().startsWith("lightning:lnurl");
-    const isLnAddress = dest.includes("@");
-
-    console.log(`Paying ${sats} sats to ${dest} (${isLnurl ? "LNURL" : isLnAddress ? "LN Address" : "unknown"})`);
+    const isLnurl = destination.toLowerCase().startsWith("lnurl");
+    const isLnAddress = destination.includes("@");
 
     if (isLnAddress) {
-      // Pay via Lightning address
       const sendRes = await fetch(BLINK_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-API-KEY": apiKey },
         body: JSON.stringify({
           query: `mutation LnAddressPaymentSend($input: LnAddressPaymentSendInput!) {
-            lnAddressPaymentSend(input: $input) {
-              status
-              errors { message code }
-            }
+            lnAddressPaymentSend(input: $input) { status errors { message code } }
           }`,
-          variables: { input: { walletId: btcWallet.id, lnAddress: dest, amount: sats } }
+          variables: { input: { walletId: btcWallet.id, lnAddress: destination, amount: parseInt(amount) } }
         })
       });
       const sendText = await sendRes.text();
-      console.log("LN Address response:", sendText);
+      console.log("Blink pay response:", sendText);
       const sendData = JSON.parse(sendText);
       if (sendData.errors?.length) return res.status(400).json({ error: sendData.errors[0].message });
       const result = sendData?.data?.lnAddressPaymentSend;
-      if (result?.errors?.length) return res.status(400).json({ error: result.errors[0].message, code: result.errors[0].code });
+      if (result?.errors?.length) return res.status(400).json({ error: result.errors[0].message });
       if (["SUCCESS","ALREADY_PAID","PENDING"].includes(result?.status)) return res.json({ success: true, status: result.status });
       return res.status(400).json({ error: "Payment status: " + result?.status });
-
     } else if (isLnurl) {
-      // Step 1: Decode LNURL to callback URL
-      let callbackUrl;
-      try {
-        callbackUrl = decodeLnurl(dest);
-        console.log("Decoded LNURL to:", callbackUrl);
-      } catch(e) {
-        return res.status(400).json({ error: "Could not decode LNURL: " + e.message });
+      // Decode LNURL
+      const chars = "qpzry9x8gf2tvdw0s3jn54khce6mua7l";
+      const str = destination.toLowerCase().replace("lightning:", "");
+      const sep = str.lastIndexOf("1");
+      const dataStr = str.slice(sep + 1);
+      const data = [];
+      for (const c of dataStr) { const val = chars.indexOf(c); if (val !== -1) data.push(val); }
+      const bytes = [];
+      let acc = 0, bits = 0;
+      for (const val of data.slice(0, -6)) {
+        acc = (acc << 5) | val; bits += 5;
+        while (bits >= 8) { bits -= 8; bytes.push((acc >> bits) & 0xff); }
       }
-
-      // Step 2: Fetch LNURL pay params
+      const callbackUrl = Buffer.from(bytes).toString("utf8");
+      console.log("LNURL decoded to:", callbackUrl);
       const lnurlRes = await fetch(callbackUrl);
       const lnurlData = await lnurlRes.json();
-      console.log("LNURL params:", JSON.stringify(lnurlData));
-
-      if (lnurlData.status === "ERROR") return res.status(400).json({ error: lnurlData.reason || "LNURL error" });
-      if (!lnurlData.callback) return res.status(400).json({ error: "No callback in LNURL response" });
-
-      const minSendable = lnurlData.minSendable || 1000; // millisats
-      const maxSendable = lnurlData.maxSendable || 100000000;
-      const amountMsat = sats * 1000;
-
-      if (amountMsat < minSendable) return res.status(400).json({ error: `Amount too low. Min: ${minSendable/1000} sats` });
-      if (amountMsat > maxSendable) return res.status(400).json({ error: `Amount too high. Max: ${maxSendable/1000} sats` });
-
-      // Step 3: Get invoice from LNURL callback
+      if (lnurlData.status === "ERROR") return res.status(400).json({ error: lnurlData.reason });
+      const amountMsat = parseInt(amount) * 1000;
       const invoiceUrl = `${lnurlData.callback}${lnurlData.callback.includes("?")?"&":"?"}amount=${amountMsat}`;
-      console.log("Fetching invoice from:", invoiceUrl);
       const invoiceRes = await fetch(invoiceUrl);
       const invoiceData = await invoiceRes.json();
-      console.log("Invoice response:", JSON.stringify(invoiceData));
-
-      if (invoiceData.status === "ERROR") return res.status(400).json({ error: invoiceData.reason || "Invoice error" });
-      if (!invoiceData.pr) return res.status(400).json({ error: "No invoice (pr) in response" });
-
-      // Step 4: Pay the invoice via Blink
+      if (!invoiceData.pr) return res.status(400).json({ error: "No invoice received" });
       const payRes = await fetch(BLINK_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-API-KEY": apiKey },
         body: JSON.stringify({
           query: `mutation LnInvoicePaymentSend($input: LnInvoicePaymentInput!) {
-            lnInvoicePaymentSend(input: $input) {
-              status
-              errors { message code }
-            }
+            lnInvoicePaymentSend(input: $input) { status errors { message code } }
           }`,
           variables: { input: { walletId: btcWallet.id, paymentRequest: invoiceData.pr } }
         })
       });
-      const payText = await payRes.text();
-      console.log("Invoice payment response:", payText);
-      const payData = JSON.parse(payText);
-      if (payData.errors?.length) return res.status(400).json({ error: payData.errors[0].message });
+      const payData = await payRes.json();
       const payResult = payData?.data?.lnInvoicePaymentSend;
-      if (payResult?.errors?.length) return res.status(400).json({ error: payResult.errors[0].message, code: payResult.errors[0].code });
-      if (["SUCCESS","ALREADY_PAID","PENDING"].includes(payResult?.status)) return res.json({ success: true, status: payResult.status });
-      return res.status(400).json({ error: "Payment status: " + payResult?.status });
-
-    } else {
-      return res.status(400).json({ error: "Unknown destination format. Use Lightning address (name@blink.sv) or LNURL." });
+      if (payResult?.errors?.length) return res.status(400).json({ error: payResult.errors[0].message });
+      if (["SUCCESS","ALREADY_PAID","PENDING"].includes(payResult?.status)) return res.json({ success: true });
+      return res.status(400).json({ error: "Payment failed: " + payResult?.status });
     }
-
-  } catch (e) {
-    console.error("Pay error:", e.message);
-    res.status(500).json({ error: e.message });
-  }
+    return res.status(400).json({ error: "Unknown destination format" });
+  } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
 const PORT = process.env.PORT || 3001;
