@@ -1,0 +1,1764 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Bitcoin Ekasi — Teacher</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --orange:#f7931a;--orange-light:#ffa940;--orange-dim:#c4720d;
+  --orange-glow:rgba(247,147,26,0.15);
+  --bg:#0d0d0d;--bg2:#141414;--bg3:#1a1a1a;--bg4:#222222;
+  --border:#2a2a2a;--border2:#333333;
+  --text:#f0f0f0;--text2:#a0a0a0;--text3:#666666;
+  --green:#22c55e;--green-bg:rgba(34,197,94,0.1);
+  --red:#ef4444;--red-bg:rgba(239,68,68,0.1);
+  --blue:#3b82f6;
+  --nav-h:72px;
+  --radius:14px;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;overflow:hidden}
+body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text)}
+
+/* ── Login ── */
+.login-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;background:var(--bg)}
+.login-box{background:var(--bg2);border:1px solid var(--border);border-radius:24px;padding:36px 28px;width:100%;max-width:360px}
+.login-logo-badge{display:inline-flex;align-items:center;background:var(--orange-glow);border:1px solid rgba(247,147,26,0.3);border-radius:100px;padding:6px 14px;font-size:11px;font-weight:600;color:var(--orange);letter-spacing:2px;text-transform:uppercase;margin-bottom:16px}
+.login-box h1{font-size:36px;font-weight:800;line-height:1;margin-bottom:6px}
+.login-box p{font-size:13px;color:var(--text2);margin-bottom:28px}
+.inp-label{display:block;font-size:11px;font-weight:700;color:var(--text2);letter-spacing:1px;text-transform:uppercase;margin-bottom:8px}
+.inp{width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:12px;padding:16px;color:var(--text);font-size:16px;font-family:'Syne',sans-serif;outline:none;transition:border-color 0.2s;margin-bottom:16px}
+.inp:focus{border-color:var(--orange)}
+.btn-login{width:100%;background:var(--orange);color:#000;border:none;border-radius:12px;padding:18px;font-size:17px;font-weight:800;font-family:'Syne',sans-serif;cursor:pointer}
+.err-msg{background:var(--red-bg);border:1px solid var(--red);border-radius:8px;padding:10px 14px;font-size:13px;color:var(--red);margin-bottom:12px}
+
+/* ── App shell ── */
+#app{display:none;height:100vh;display:none;flex-direction:column}
+#app.visible{display:flex}
+
+/* Top bar */
+.topbar{background:var(--bg2);border-bottom:1px solid var(--border);padding:12px 16px;display:flex;align-items:center;gap:10px;flex-shrink:0}
+.topbar-logo{width:36px;height:36px;border-radius:50%;border:2px solid var(--orange);flex-shrink:0;overflow:hidden;background:var(--bg3);display:flex;align-items:center;justify-content:center}
+.topbar-logo img{width:100%;height:100%;object-fit:cover}
+.topbar-info{flex:1}
+.topbar-info h2{font-size:16px;font-weight:800;line-height:1}
+.topbar-info p{font-size:10px;color:var(--orange);letter-spacing:2px;text-transform:uppercase;margin-top:1px}
+.live-pill{display:inline-flex;align-items:center;gap:5px;background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.25);border-radius:100px;padding:5px 10px;font-size:10px;font-weight:600;color:var(--green);font-family:'DM Mono',monospace}
+.live-dot{width:5px;height:5px;background:var(--green);border-radius:50%;animation:blink 2s infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0.5}}
+
+/* Stats strip */
+.stats-strip{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--border);flex-shrink:0}
+.stat-cell{background:var(--bg2);padding:12px 8px;text-align:center}
+.stat-val{font-size:26px;font-weight:800;color:var(--orange);font-family:'DM Mono',monospace;line-height:1}
+.stat-label{font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-top:3px;font-weight:600}
+
+/* Page container */
+.pages{flex:1;overflow:hidden;position:relative}
+.page{position:absolute;inset:0;overflow-y:auto;padding:16px;padding-bottom:calc(var(--nav-h) + 16px);display:none}
+.page.show{display:block}
+.page::-webkit-scrollbar{display:none}
+
+/* Section header */
+.section-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+.section-title{font-size:13px;font-weight:700;color:var(--text2);letter-spacing:1px;text-transform:uppercase}
+
+/* Big action button */
+.big-btn{width:100%;border:none;border-radius:14px;padding:18px;font-size:16px;font-weight:800;font-family:'Syne',sans-serif;cursor:pointer;margin-bottom:14px;display:flex;align-items:center;justify-content:center;gap:8px}
+.big-btn-orange{background:var(--orange);color:#000}
+.big-btn-outline{background:var(--bg2);color:var(--text2);border:1px solid var(--border2)}
+.big-btn-green{background:rgba(34,197,94,0.15);color:var(--green);border:1px solid rgba(34,197,94,0.3)}
+
+/* Student card */
+.student-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:10px;display:flex;align-items:center;gap:14px;position:relative;transition:background 0.15s}
+.student-card:active{background:var(--bg3)}
+.student-avatar{width:48px;height:48px;border-radius:50%;background:var(--orange-glow);border:2px solid rgba(247,147,26,0.3);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:18px;color:var(--orange);flex-shrink:0}
+.student-name{font-size:15px;font-weight:700}
+.student-sub{font-size:11px;color:var(--text3);font-family:'DM Mono',monospace;margin-top:3px}
+
+/* Big toggle */
+.big-toggle{position:relative;width:64px;height:36px;background:var(--bg4);border:2px solid var(--border2);border-radius:18px;cursor:pointer;transition:all 0.3s;flex-shrink:0}
+.big-toggle::after{content:'';position:absolute;width:28px;height:28px;background:var(--text3);border-radius:50%;top:2px;left:2px;transition:all 0.3s}
+.big-toggle.on{background:var(--orange);border-color:var(--orange)}
+.big-toggle.on::after{left:30px;background:#fff;box-shadow:0 2px 8px rgba(247,147,26,0.5)}
+.big-toggle:disabled,.big-toggle[disabled]{opacity:0.25;cursor:not-allowed;pointer-events:none}
+
+/* Badge */
+.badge{display:inline-flex;align-items:center;padding:4px 10px;border-radius:6px;font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;font-family:'DM Mono',monospace}
+.badge-green{background:var(--green-bg);color:var(--green);border:1px solid rgba(34,197,94,0.2)}
+.badge-gray{background:var(--bg4);color:var(--text3);border:1px solid var(--border)}
+.badge-orange{background:var(--orange-glow);color:var(--orange);border:1px solid rgba(247,147,26,0.2)}
+.badge-blue{background:rgba(59,130,246,0.1);color:var(--blue);border:1px solid rgba(59,130,246,0.2)}
+.badge-locked{background:var(--bg4);color:var(--text3);border:1px solid var(--border);opacity:0.4}
+
+/* Alert */
+.alert{padding:14px 16px;border-radius:10px;font-size:13px;margin-bottom:12px}
+.alert-ok{background:var(--green-bg);color:var(--green);border:1px solid rgba(34,197,94,0.2)}
+.alert-err{background:var(--red-bg);color:var(--red);border:1px solid rgba(239,68,68,0.2)}
+.alert-info{background:var(--orange-glow);color:var(--orange);border:1px solid rgba(247,147,26,0.2)}
+
+/* Card container */
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:14px}
+.card-row{padding:14px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px}
+.card-row:last-child{border-bottom:none}
+
+/* Payout row */
+.payout-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:10px}
+.payout-name{font-size:15px;font-weight:700;margin-bottom:4px}
+.payout-dest{font-size:10px;color:var(--text3);font-family:'DM Mono',monospace;margin-bottom:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.payout-nums{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--border);border-radius:8px;overflow:hidden;margin-bottom:12px}
+.payout-num-cell{background:var(--bg3);padding:10px;text-align:center}
+.payout-num-val{font-size:16px;font-weight:800;font-family:'DM Mono',monospace}
+.payout-num-label{font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-top:2px}
+
+/* Leaderboard */
+.lb-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:10px;display:flex;align-items:center;gap:14px}
+.lb-medal{font-size:28px;flex-shrink:0}
+.lb-rank-num{width:40px;height:40px;background:var(--bg4);border:1px solid var(--border2);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14px;color:var(--text3);flex-shrink:0;font-family:'DM Mono',monospace}
+.lb-bar{height:5px;background:var(--bg4);border-radius:3px;overflow:hidden;margin-top:6px}
+.lb-bar-fill{height:100%;border-radius:3px;transition:width 1s ease}
+.lb-days{font-size:26px;font-weight:800;font-family:'DM Mono',monospace;text-align:right;line-height:1}
+.lb-sats{font-size:10px;color:var(--text3);text-align:right;margin-top:2px}
+
+/* Star banner */
+.star-banner{border-radius:16px;padding:24px 20px;margin-bottom:14px;text-align:center;background:linear-gradient(135deg,#1a1200,#2a1f00,#1a1200);border:1px solid rgba(255,215,0,0.4)}
+.star-banner-crown{font-size:44px;display:block;margin-bottom:6px}
+.star-banner-label{font-size:10px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:rgba(255,215,0,0.6);margin-bottom:6px}
+.star-banner-name{font-size:24px;font-weight:800;background:linear-gradient(135deg,#ffd700,#ffed4a,#ffd700);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:12px}
+.star-stats{display:flex;justify-content:center;gap:10px;flex-wrap:wrap}
+.star-stat{background:rgba(255,215,0,0.08);border:1px solid rgba(255,215,0,0.15);border-radius:10px;padding:8px 14px;text-align:center}
+.star-stat-val{font-size:18px;font-weight:800;color:#ffd700;font-family:'DM Mono',monospace}
+.star-stat-label{font-size:9px;color:rgba(255,215,0,0.5);text-transform:uppercase;letter-spacing:1px;margin-top:2px}
+
+/* Warn banner */
+.warn-banner{background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.25);border-radius:10px;padding:12px 14px;margin-bottom:14px;display:flex;align-items:flex-start;gap:10px}
+.warn-title{font-size:13px;font-weight:700;color:var(--red);margin-bottom:4px}
+.warn-list{font-size:11px;color:var(--text2);font-family:'DM Mono',monospace;line-height:1.8}
+
+/* Forms */
+.inp-group{margin-bottom:14px}
+.inp-hint{font-size:11px;color:var(--text3);margin-top:4px;font-family:'DM Mono',monospace}
+.form-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:14px}
+
+/* Roster */
+.roster-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;margin-bottom:10px;display:flex;align-items:center;gap:12px}
+.roster-avatar{width:44px;height:44px;border-radius:50%;background:var(--orange-glow);border:1px solid rgba(247,147,26,0.3);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:16px;color:var(--orange);flex-shrink:0}
+
+/* Chapter progress */
+.chapter-item{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;margin-bottom:8px;display:flex;align-items:center;gap:12px}
+.chapter-item.done{border-color:rgba(247,147,26,0.3);background:var(--orange-glow)}
+.ch-num{width:36px;height:36px;border-radius:50%;background:var(--bg4);border:1px solid var(--border2);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;color:var(--text3);flex-shrink:0;font-family:'DM Mono',monospace}
+.ch-num.done{background:var(--orange);border-color:var(--orange);color:#000}
+
+/* Contrib graph */
+.contrib-day{width:16px;height:16px;border-radius:3px;flex-shrink:0}
+.contrib-day.empty{background:var(--bg4);border:1px solid var(--border)}
+.contrib-day.present{background:var(--orange);border:1px solid var(--orange-dim)}
+.contrib-day.future{background:var(--bg3);opacity:0.3}
+
+/* Month bar */
+.month-week-row{display:grid;grid-template-columns:70px 1fr 50px;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(--border);font-size:13px}
+.month-week-row:last-child{border-bottom:none}
+.month-bar{height:6px;background:var(--bg4);border-radius:3px;overflow:hidden}
+.month-bar-fill{height:100%;background:linear-gradient(90deg,var(--orange),var(--orange-light));border-radius:3px;transition:width 0.8s}
+
+/* Profile modal */
+.modal-wrap{position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:500;display:flex;align-items:flex-end;justify-content:center;backdrop-filter:blur(4px)}
+.modal-sheet{background:var(--bg2);border:1px solid var(--border);border-radius:24px 24px 0 0;width:100%;max-height:90vh;overflow-y:auto;padding:20px;padding-bottom:calc(env(safe-area-inset-bottom) + 20px)}
+.modal-handle{width:40px;height:4px;background:var(--border2);border-radius:2px;margin:0 auto 20px}
+.modal-title{font-size:18px;font-weight:800;margin-bottom:16px}
+
+/* EOW modal */
+.eow-modal{position:fixed;inset:0;background:rgba(0,0,0,0.9);z-index:500;display:flex;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(4px)}
+.eow-box{background:var(--bg2);border:1px solid var(--border);border-radius:20px;width:100%;padding:28px;text-align:center}
+.eow-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:20px 0}
+.eow-stat{background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:12px 8px}
+.eow-stat-val{font-size:22px;font-weight:800;color:var(--orange);font-family:'DM Mono',monospace}
+.eow-stat-label{font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-top:3px}
+
+/* Edit modal */
+.edit-modal{position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:500;display:flex;align-items:flex-end;justify-content:center;backdrop-filter:blur(4px)}
+.edit-sheet{background:var(--bg2);border:1px solid var(--border);border-radius:24px 24px 0 0;width:100%;padding:20px;padding-bottom:calc(env(safe-area-inset-bottom) + 20px)}
+
+/* Week filter */
+.week-filter{display:flex;align-items:center;gap:8px;background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:10px 14px;margin-bottom:14px;flex-wrap:wrap}
+.week-filter-label{font-size:10px;font-weight:700;color:var(--text3);letter-spacing:1px;text-transform:uppercase;flex-shrink:0}
+.week-nav{display:flex;align-items:center;gap:6px}
+.week-nav-btn{width:32px;height:32px;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;color:var(--text2);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.week-label{font-size:12px;font-weight:600;color:var(--text);font-family:'DM Mono',monospace;min-width:100px;text-align:center}
+.week-mode-btns{display:flex;gap:4px;margin-left:auto}
+.week-mode-btn{padding:5px 12px;border-radius:6px;font-size:11px;font-weight:700;font-family:'Syne',sans-serif;cursor:pointer;border:1px solid var(--border2);background:var(--bg3);color:var(--text3)}
+.week-mode-btn.active{background:var(--orange-glow);color:var(--orange);border-color:rgba(247,147,26,0.3)}
+
+/* Week summary */
+.week-summary-strip{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px}
+.week-summary-card{background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:12px}
+.week-summary-val{font-size:20px;font-weight:800;color:var(--orange);font-family:'DM Mono',monospace}
+.week-summary-label{font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-top:3px}
+
+/* Enhanced lb CSS */
+.lb-streak{display:inline-flex;align-items:center;gap:3px;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.2);border-radius:20px;padding:2px 8px;font-size:10px;font-weight:700;color:#ef4444;font-family:'DM Mono',monospace;margin-top:4px}
+.lb-perfect{display:inline-flex;align-items:center;gap:3px;background:var(--green-bg);border:1px solid rgba(34,197,94,0.2);border-radius:20px;padding:2px 8px;font-size:10px;font-weight:700;color:var(--green);font-family:'DM Mono',monospace;margin-top:4px}
+
+/* Topic chip */
+.topic-chip{display:inline-flex;padding:3px 10px;border-radius:20px;font-size:10px;font-weight:600;background:var(--bg3);border:1px solid var(--border2);color:var(--text3);font-family:'DM Mono',monospace;margin:2px}
+
+/* Chapter history */
+.chapter-history-row{padding:12px 16px;border-bottom:1px solid var(--border)}
+.chapter-history-row:last-child{border-bottom:none}
+.chapter-badge{display:inline-flex;align-items:center;background:var(--orange-glow);border:1px solid rgba(247,147,26,0.3);border-radius:6px;padding:3px 8px;font-size:10px;font-weight:700;color:var(--orange);font-family:'DM Mono',monospace}
+
+/* Settings */
+.settings-section{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:14px}
+.settings-row{display:flex;align-items:center;justify-content:space-between;padding:16px;border-bottom:1px solid var(--border)}
+.settings-row:last-child{border-bottom:none}
+.settings-label{font-size:14px;font-weight:600}
+.settings-sub{font-size:11px;color:var(--text3);font-family:'DM Mono',monospace;margin-top:2px}
+.key-badge-ok{background:var(--green-bg);color:var(--green);border:1px solid rgba(34,197,94,0.2);padding:3px 10px;border-radius:6px;font-size:11px;font-family:'DM Mono',monospace}
+.key-badge-err{background:var(--red-bg);color:var(--red);border:1px solid rgba(239,68,68,0.2);padding:3px 10px;border-radius:6px;font-size:11px;font-family:'DM Mono',monospace}
+
+/* Bottom nav */
+.bottom-nav{position:fixed;bottom:0;left:0;right:0;height:var(--nav-h);background:var(--bg2);border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-around;padding:0 4px;padding-bottom:env(safe-area-inset-bottom);z-index:100}
+.nav-item{display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 10px;border-radius:12px;cursor:pointer;min-width:52px;position:relative;border:none;background:none;font-family:'Syne',sans-serif}
+.nav-item.active{background:var(--orange-glow)}
+.nav-icon{font-size:22px;line-height:1}
+.nav-label{font-size:9px;font-weight:700;color:var(--text3);letter-spacing:0.5px;text-transform:uppercase}
+.nav-item.active .nav-label{color:var(--orange)}
+.nav-badge{position:absolute;top:4px;right:4px;background:var(--orange);color:#000;border-radius:100px;font-size:8px;font-weight:800;padding:1px 5px;font-family:'DM Mono',monospace}
+
+/* Spinner */
+@keyframes spin{to{transform:rotate(360deg)}}
+.spinner{width:16px;height:16px;border:2px solid var(--border2);border-top-color:var(--orange);border-radius:50%;animation:spin 0.6s linear infinite;display:inline-block}
+
+/* More menu overlay */
+.more-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:200;display:none;backdrop-filter:blur(4px)}
+.more-overlay.show{display:block}
+.more-sheet{position:fixed;bottom:0;left:0;right:0;background:var(--bg2);border:1px solid var(--border);border-radius:24px 24px 0 0;padding:20px;padding-bottom:calc(var(--nav-h) + 16px);z-index:201}
+.more-item{display:flex;align-items:center;gap:14px;padding:16px 12px;border-radius:12px;cursor:pointer;font-size:15px;font-weight:600;border:none;background:none;width:100%;color:var(--text);font-family:'Syne',sans-serif;text-align:left}
+.more-item:hover{background:var(--bg3)}
+.more-item-icon{font-size:20px;width:28px;text-align:center}
+
+/* Empty state */
+.empty{text-align:center;padding:48px 20px}
+.empty-title{font-size:16px;font-weight:700;color:var(--text2)}
+.empty-sub{font-size:12px;color:var(--text3);margin-top:6px;font-family:'DM Mono',monospace}
+
+select.inp{appearance:none}
+textarea.inp{resize:vertical;min-height:80px}
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="loginPage" class="login-wrap">
+  <div class="login-box">
+    <div class="login-logo-badge">Teacher Portal</div>
+    <h1>Bitcoin Ekasi</h1>
+    <p>Mossel Bay, South Africa</p>
+    <div class="inp-group">
+      <label class="inp-label">Password</label>
+      <input class="inp" type="password" id="pwInput" placeholder="Enter your password" onkeydown="if(event.key==='Enter')doLogin()">
+    </div>
+    <div id="pwErr"></div>
+    <button class="btn-login" onclick="doLogin()">Sign In</button>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="app">
+
+  <!-- Top bar -->
+  <div class="topbar">
+    <div class="topbar-logo">
+      <img src="logo.jpg" onerror="this.style.display='none'">
+    </div>
+    <div class="topbar-info">
+      <h2>Bitcoin Ekasi</h2>
+      <p>Teacher Portal</p>
+    </div>
+    <div class="live-pill"><div class="live-dot"></div>LIVE</div>
+  </div>
+
+  <!-- Stats strip -->
+  <div class="stats-strip">
+    <div class="stat-cell"><div class="stat-val" id="sStudents">0</div><div class="stat-label">Students</div></div>
+    <div class="stat-cell"><div class="stat-val" id="sToday">0/0</div><div class="stat-label">Today</div></div>
+    <div class="stat-cell"><div class="stat-val" id="sOwed">0</div><div class="stat-label">Owed</div></div>
+  </div>
+
+  <!-- Pages -->
+  <div class="pages">
+
+    <!-- ATTENDANCE -->
+    <div id="p-attend" class="page show">
+      <div id="lowAttendWarn"></div>
+      <div class="section-hdr">
+        <div class="section-title" id="attendDateLabel">Today's Class</div>
+      </div>
+      <button class="big-btn big-btn-orange" onclick="markAll()">✓ Mark All Present</button>
+      <div id="attendList"></div>
+    </div>
+
+    <!-- PAYOUTS -->
+    <div id="p-payout" class="page">
+      <div id="payAlert"></div>
+      <div id="bonusAlert" style="margin-bottom:8px"></div>
+      <button class="big-btn big-btn-orange" onclick="payAll()" style="margin-bottom:8px">⚡ Pay All Outstanding</button>
+      <button class="big-btn big-btn-outline" id="bonusBtn" onclick="handleGrantBonus()" style="margin-bottom:14px;border-color:rgba(255,215,0,0.3);color:#ffd700;font-size:14px">⚡ Grant Perfect Week Bonus</button>
+      <div class="week-filter" id="payoutWeekFilter"></div>
+      <div class="week-summary-strip" id="payoutWeekSummary"></div>
+      <div id="payoutList"></div>
+    </div>
+
+    <!-- LEADERBOARD -->
+    <div id="p-leaderboard" class="page">
+      <div class="week-filter" id="lbWeekFilter"></div>
+      <div id="lbStarBanner"></div>
+      <div id="lbList"></div>
+    </div>
+
+    <!-- STATS -->
+    <div id="p-stats" class="page">
+      <div class="week-filter" id="statsWeekFilter"></div>
+      <div class="week-summary-strip" id="statsWeekSummary"></div>
+      <div id="statsList"></div>
+    </div>
+
+    <!-- MORE (hub for extra pages) -->
+    <div id="p-more" class="page">
+      <div class="section-hdr"><div class="section-title">More</div></div>
+      <div class="settings-section">
+        <div class="more-item" onclick="goInner('roster')"><span class="more-item-icon">🎓</span>My Roster</div>
+        <div class="more-item" onclick="goInner('chapters')"><span class="more-item-icon">📚</span>Chapters</div>
+        <div class="more-item" onclick="goInner('monthly')"><span class="more-item-icon">📊</span>Monthly Overview</div>
+        <div class="more-item" onclick="goInner('test')"><span class="more-item-icon">▶️</span>Test Payment</div>
+        <div class="more-item" onclick="goInner('settings')"><span class="more-item-icon">⚙️</span>Settings</div>
+        <div class="more-item" onclick="doLogout()" style="color:#ef4444"><span class="more-item-icon">→</span>Sign Out</div>
+      </div>
+    </div>
+
+    <!-- ROSTER (inner) -->
+    <div id="p-roster" class="page">
+      <button class="big-btn big-btn-outline" onclick="goBack()" style="margin-bottom:14px">← Back</button>
+      <div class="form-card">
+        <div style="font-size:15px;font-weight:700;margin-bottom:16px">Enroll Student</div>
+        <div class="inp-group"><label class="inp-label">Full Name</label><input class="inp" id="rName" placeholder="Student full name"></div>
+        <div class="inp-group"><label class="inp-label">Lightning Address</label><input class="inp" id="rDest" placeholder="name@blink.sv or lnurl..."><div class="inp-hint">Blink address or Bolt Card LNURL</div></div>
+        <div id="rErr"></div>
+        <button class="big-btn big-btn-orange" onclick="addStudent()">+ Enroll Student</button>
+      </div>
+      <div class="section-title" style="margin-bottom:12px">Enrolled Students</div>
+      <div id="rosterList"></div>
+    </div>
+
+    <!-- CHAPTERS (inner) -->
+    <div id="p-chapters" class="page">
+      <button class="big-btn big-btn-outline" onclick="goBack()" style="margin-bottom:14px">← Back</button>
+      <div class="form-card">
+        <div style="font-size:15px;font-weight:700;margin-bottom:4px">Record Today's Class</div>
+        <div style="font-size:11px;color:var(--text3);font-family:'DM Mono',monospace;margin-bottom:16px" id="chapterTodayDate"></div>
+        <div class="inp-group"><label class="inp-label">Chapter</label>
+          <select class="inp" id="chapterSelect" onchange="onChapterSelect()"><option value="">— Select chapter —</option></select>
+        </div>
+        <div id="chapterTopicsPreview" style="display:none;margin-bottom:14px">
+          <div style="font-size:10px;color:var(--text3);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">Topics</div>
+          <div id="chapterTopicsList" style="display:flex;flex-wrap:wrap;gap:4px"></div>
+        </div>
+        <div class="inp-group"><label class="inp-label">Notes (optional)</label><textarea class="inp" id="chapterNotes" placeholder="What did the class cover today?"></textarea></div>
+        <div id="chapterSaveMsg"></div>
+        <button class="big-btn big-btn-orange" onclick="saveChapterEntry()">📚 Save Chapter Entry</button>
+      </div>
+      <div class="section-title" style="margin-bottom:12px">Curriculum Progress</div>
+      <div id="chapterProgress" style="margin-bottom:20px"></div>
+      <div class="section-title" style="margin-bottom:12px">Class History</div>
+      <div class="card"><div id="chapterHistory"></div></div>
+    </div>
+
+    <!-- MONTHLY (inner) -->
+    <div id="p-monthly" class="page">
+      <button class="big-btn big-btn-outline" onclick="goBack()" style="margin-bottom:14px">← Back</button>
+      <div id="monthlyContent"></div>
+    </div>
+
+    <!-- TEST PAYMENT (inner) -->
+    <div id="p-test" class="page">
+      <button class="big-btn big-btn-outline" onclick="goBack()" style="margin-bottom:14px">← Back</button>
+      <div class="form-card">
+        <p style="font-size:13px;color:var(--text2);margin-bottom:20px;font-family:'DM Mono',monospace;line-height:1.6">Send a small test payment (1–10 sats) to verify Lightning connectivity.</p>
+        <div class="inp-group"><label class="inp-label">Select Student</label><select class="inp" id="testStudent" onchange="previewTestDest()"><option value="">— Choose student —</option></select></div>
+        <div id="testDestPreview" style="font-size:11px;color:var(--text3);font-family:'DM Mono',monospace;margin-top:-8px;margin-bottom:14px"></div>
+        <div class="inp-group"><label class="inp-label">Amount (1–10 sats)</label><input class="inp" type="number" id="testAmount" value="1" min="1" max="10"></div>
+        <div id="testResult"></div>
+        <button class="big-btn big-btn-orange" onclick="sendTestPayment()">Send Test Payment</button>
+      </div>
+    </div>
+
+    <!-- SETTINGS (inner) -->
+    <div id="p-settings" class="page">
+      <button class="big-btn big-btn-outline" onclick="goBack()" style="margin-bottom:14px">← Back</button>
+      <div class="settings-section">
+        <div class="settings-row">
+          <div><div class="settings-label">Blink API Key</div><div class="settings-sub">dashboard.blink.sv</div></div>
+          <div id="tKeyBadge"></div>
+        </div>
+        <div style="padding:0 16px 16px">
+          <input class="inp" type="password" id="tKey" placeholder="blink_..." style="margin-bottom:8px">
+          <div id="tSettingsMsg"></div>
+          <button class="big-btn big-btn-outline" onclick="testTeacherBlink()" style="margin-bottom:8px;font-size:14px">Test Connection</button>
+          <button class="big-btn big-btn-orange" onclick="saveTeacherSettings()" style="font-size:14px">Save API Key</button>
+        </div>
+      </div>
+      <div class="settings-section">
+        <div class="settings-row"><div><div class="settings-label">Change Password</div></div></div>
+        <div style="padding:0 16px 16px">
+          <input class="inp" type="password" id="tNewPw" placeholder="Min 4 characters" style="margin-bottom:8px">
+          <div id="tPwMsg"></div>
+          <button class="big-btn big-btn-outline" onclick="saveTeacherPassword()" style="font-size:14px">Update Password</button>
+        </div>
+      </div>
+      <div style="text-align:center;font-size:11px;color:var(--text3);font-family:'DM Mono',monospace;padding:8px">Bitcoin Ekasi Diploma Tracker v3.2 Mobile</div>
+    </div>
+
+  </div><!-- /pages -->
+
+  <!-- Bottom Navigation -->
+  <div class="bottom-nav">
+    <button class="nav-item active" id="nav-attend" onclick="go('attend')">
+      <div class="nav-icon">✓</div>
+      <div class="nav-label">Attend</div>
+    </button>
+    <button class="nav-item" id="nav-payout" onclick="go('payout')" style="position:relative">
+      <div class="nav-icon">⚡</div>
+      <div class="nav-label">Payouts</div>
+      <div class="nav-badge" id="nav-owed" style="display:none">0</div>
+    </button>
+    <button class="nav-item" id="nav-leaderboard" onclick="go('leaderboard')">
+      <div class="nav-icon">★</div>
+      <div class="nav-label">Leaders</div>
+    </button>
+    <button class="nav-item" id="nav-stats" onclick="go('stats')">
+      <div class="nav-icon">📊</div>
+      <div class="nav-label">Stats</div>
+    </button>
+    <button class="nav-item" id="nav-more" onclick="go('more')">
+      <div class="nav-icon">☰</div>
+      <div class="nav-label">More</div>
+    </button>
+  </div>
+
+</div><!-- /app -->
+
+<!-- Profile Modal -->
+<div id="profileModal" class="modal-wrap" style="display:none" onclick="if(event.target===this)closeProfile()">
+  <div class="modal-sheet">
+    <div class="modal-handle"></div>
+    <div style="display:flex;align-items:center;gap:14px;margin-bottom:20px">
+      <div class="roster-avatar" style="width:56px;height:56px;font-size:22px" id="profileAvatar">?</div>
+      <div><div style="font-size:18px;font-weight:800" id="profileName"></div><div style="font-size:11px;color:var(--text3);font-family:'DM Mono',monospace;margin-top:3px" id="profileDest"></div></div>
+      <button onclick="closeProfile()" style="margin-left:auto;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;width:32px;height:32px;color:var(--text2);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center">✕</button>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--border);border-radius:10px;overflow:hidden;margin-bottom:20px" id="profileStats"></div>
+    <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:2px;text-transform:uppercase;margin-bottom:12px">Attendance Calendar</div>
+    <div id="profileCalendar"></div>
+    <div style="display:flex;gap:8px;margin-top:10px;margin-bottom:20px">
+      <div class="contrib-day present"></div><span style="font-size:11px;color:var(--text3)">Present</span>
+      <div class="contrib-day empty" style="margin-left:8px"></div><span style="font-size:11px;color:var(--text3)">Absent</span>
+    </div>
+    <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:2px;text-transform:uppercase;margin-bottom:12px">Weekly Breakdown</div>
+    <div class="card"><div id="profileWeekly"></div></div>
+  </div>
+</div>
+
+<!-- Edit Student Modal -->
+<div id="editModal" class="edit-modal" style="display:none" onclick="if(event.target===this)closeEdit()">
+  <div class="edit-sheet">
+    <div class="modal-handle"></div>
+    <div class="modal-title">✏️ Edit Student</div>
+    <input type="hidden" id="editStudentId">
+    <div class="inp-group"><label class="inp-label">Full Name</label><input class="inp" id="editName" placeholder="Student full name"></div>
+    <div class="inp-group"><label class="inp-label">Lightning Address / Bolt Card LNURL</label><input class="inp" id="editDest" placeholder="name@blink.sv or lnurl..."></div>
+    <div id="editMsg"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">
+      <button class="big-btn big-btn-outline" onclick="closeEdit()" style="margin:0;font-size:14px">Cancel</button>
+      <button class="big-btn big-btn-orange" onclick="saveEdit()" style="margin:0;font-size:14px">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- EOW Modal -->
+<div id="eowModal" class="eow-modal" style="display:none">
+  <div class="eow-box">
+    <div style="font-size:40px;margin-bottom:8px">🎉</div>
+    <div style="font-size:22px;font-weight:800;margin-bottom:4px">Week Complete!</div>
+    <div style="font-size:11px;color:var(--text3);font-family:'DM Mono',monospace;margin-bottom:4px" id="eowWeekLabel"></div>
+    <div class="eow-stats" id="eowStats"></div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:12px;font-family:'DM Mono',monospace" id="eowStar"></div>
+    <div id="eowPerfect" style="margin-bottom:14px"></div>
+    <button class="big-btn big-btn-orange" onclick="closeEow()" style="margin:0">Continue</button>
+  </div>
+</div>
+
+<script>
+
+
+// ── Perfect Week Bonus ────────────────────────────────────────
+const BONUS_SATS = 500;
+const PERFECT_DAYS = 4; // Tue-Fri
+
+// ═══════════════════════════════════════════════════════════════
+// FEATURE: South Africa School Holidays & Public Holidays 2026
+// ═══════════════════════════════════════════════════════════════
+var SA_PUBLIC_HOLIDAYS_2026 = [
+  "2026-01-01", // New Year's Day
+  "2026-03-21", // Human Rights Day
+  "2026-04-03", // Good Friday
+  "2026-04-06", // Family Day (Easter Monday)
+  "2026-04-27", // Freedom Day
+  "2026-05-01", // Workers Day
+  "2026-06-16", // Youth Day
+  "2026-08-10", // Women's Day (observed)
+  "2026-09-24", // Heritage Day
+  "2026-12-16", // Day of Reconciliation
+  "2026-12-25", // Christmas Day
+  "2026-12-26"  // Day of Goodwill
+];
+
+// Western Cape school term breaks 2026
+var SA_SCHOOL_HOLIDAYS_2026 = [
+  { start: "2026-04-02", end: "2026-04-12", name: "Term 1 Holiday" },
+  { start: "2026-06-27", end: "2026-07-19", name: "Term 2 Holiday" },
+  { start: "2026-10-03", end: "2026-10-12", name: "Term 3 Holiday" },
+  { start: "2026-12-10", end: "2026-12-31", name: "Summer Holiday" }
+];
+
+function getHolidayInfo(dateStr) {
+  // Check public holiday
+  if (SA_PUBLIC_HOLIDAYS_2026.indexOf(dateStr) !== -1) {
+    var names = {
+      "2026-01-01": "New Year's Day",
+      "2026-03-21": "Human Rights Day",
+      "2026-04-03": "Good Friday",
+      "2026-04-06": "Family Day",
+      "2026-04-27": "Freedom Day",
+      "2026-05-01": "Workers Day",
+      "2026-06-16": "Youth Day",
+      "2026-08-10": "Women's Day",
+      "2026-09-24": "Heritage Day",
+      "2026-12-16": "Day of Reconciliation",
+      "2026-12-25": "Christmas Day",
+      "2026-12-26": "Day of Goodwill"
+    };
+    return { type: "public", name: names[dateStr] || "Public Holiday" };
+  }
+  // Check school holiday
+  for (var i = 0; i < SA_SCHOOL_HOLIDAYS_2026.length; i++) {
+    var h = SA_SCHOOL_HOLIDAYS_2026[i];
+    if (dateStr >= h.start && dateStr <= h.end) {
+      return { type: "school", name: h.name };
+    }
+  }
+  return null;
+}
+
+function isHoliday(dateStr) {
+  return getHolidayInfo(dateStr) !== null;
+}
+
+
+function getWeekAttendance(s, offset) {
+  // Returns attendance dates for a given week offset (Tue-Fri)
+  var r = getClassWeekRange(offset || 0);
+  var filtered = {};
+  Object.keys(s.att || {}).forEach(function(d) {
+    if (d >= r.start && d <= r.end) filtered[d] = true;
+  });
+  return filtered;
+}
+
+function hasPerfectWeek(s, offset) {
+  var weekAtt = getWeekAttendance(s, offset || 0);
+  return Object.keys(weekAtt).length >= PERFECT_DAYS;
+}
+
+function totalEarnedWithBonus(s) {
+  // Regular sats + any bonus already granted
+  return Object.keys(s.att || {}).length * SATS + (s.bonus || 0);
+}
+
+function owedWithBonus(s) {
+  return Math.max(0, totalEarnedWithBonus(s) - (s.paid || 0));
+}
+
+async function grantPerfectWeekBonus(studentId) {
+  // Grant 500 bonus sats to a student for perfect week
+  var s = students.find(function(x) { return x.id === studentId; });
+  if (!s) return false;
+  var newBonus = (s.bonus || 0) + BONUS_SATS;
+  var result = await sb("PATCH","students",{ bonus: newBonus },"?id=eq." + studentId);
+  return result !== null;
+}
+
+async function checkAndGrantBonuses() {
+  // Check all students for perfect week and grant bonus if not already done
+  // Only run on Fridays or manually
+  var granted = [];
+  for (var i = 0; i < students.length; i++) {
+    var s = students[i];
+    var weekAtt = getWeekAttendance(s, 0);
+    var days = Object.keys(weekAtt).length;
+    if (days >= PERFECT_DAYS) {
+      // Check if bonus was already granted this week by checking bonus field
+      // Simple approach: bonus/500 gives total bonuses granted
+      // We grant once per perfect week — use a separate check
+      granted.push(s.name);
+      await grantPerfectWeekBonus(s.id);
+    }
+  }
+  await loadStudents();
+  return granted;
+}
+
+
+// ── Week filter ───────────────────────────────────────────────
+// Week = Tuesday to Friday (class days only)
+// weekOffset: 0 = current class week, -1 = last, etc.
+var filterState = {
+  payout: { offset: 0, mode: 'week' },
+  stats:  { offset: 0, mode: 'week' },
+  lb:     { offset: 0, mode: 'week' }
+};
+
+// Returns { start: 'YYYY-MM-DD', end: 'YYYY-MM-DD' } for Tue–Fri of given week
+function getClassWeekRange(offset) {
+  var now = new Date();
+  var day = now.getDay(); // 0=Sun,1=Mon,2=Tue,...,6=Sat
+  // Days since last Tuesday
+  var diffToTue = (day === 0) ? -5 : (day === 1) ? -6 : -(day - 2);
+  var tue = new Date(now);
+  tue.setDate(now.getDate() + diffToTue + (offset * 7));
+  var fri = new Date(tue);
+  fri.setDate(tue.getDate() + 3); // Tue + 3 = Fri
+  return {
+    start: tue.toISOString().split("T")[0],
+    end:   fri.toISOString().split("T")[0]
+  };
+}
+
+function formatClassWeekLabel(offset) {
+  if (offset === 0) return "This Week";
+  if (offset === -1) return "Last Week";
+  var r = getClassWeekRange(offset);
+  var months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  var s = new Date(r.start + "T00:00:00");
+  var e = new Date(r.end + "T00:00:00");
+  return s.getDate() + " " + months[s.getMonth()] + " – " + e.getDate() + " " + months[e.getMonth()];
+}
+
+function filterAttByWeek(att, offset, mode) {
+  if (mode === 'all') return att || {};
+  var r = getClassWeekRange(offset);
+  var filtered = {};
+  Object.keys(att || {}).forEach(function(d) {
+    if (d >= r.start && d <= r.end) filtered[d] = true;
+  });
+  return filtered;
+}
+
+function buildWeekFilter(containerId, stateKey) {
+  var el = document.getElementById(containerId);
+  var st = filterState[stateKey];
+  var isAll = st.mode === 'all';
+  el.innerHTML =
+    '<span class="week-filter-label">Period</span>' +
+    '<div class="week-nav">' +
+      '<button class="week-nav-btn" onclick="weekStep(\'' + stateKey + '\',-1)">&#8249;</button>' +
+      '<span class="week-label">' + (isAll ? 'All Time' : formatClassWeekLabel(st.offset)) + '</span>' +
+      '<button class="week-nav-btn" ' + (isAll || st.offset >= 0 ? 'style="opacity:0.3;pointer-events:none"' : '') +
+        ' onclick="weekStep(\'' + stateKey + '\',1)">&#8250;</button>' +
+    '</div>' +
+    '<div class="week-mode-btns">' +
+      '<button class="week-mode-btn ' + (st.mode==='week'?'active':'') + '" onclick="setWeekMode(\'' + stateKey + '\',\'week\')">Weekly</button>' +
+      '<button class="week-mode-btn ' + (isAll?'active':'') + '" onclick="setWeekMode(\'' + stateKey + '\',\'all\')">All Time</button>' +
+    '</div>';
+}
+
+function weekStep(stateKey, dir) {
+  if (filterState[stateKey].mode === 'all') return;
+  filterState[stateKey].offset += dir;
+  if (filterState[stateKey].offset > 0) filterState[stateKey].offset = 0;
+  if (stateKey === 'payout') renderPayout();
+  if (stateKey === 'stats')  renderStats();
+  if (stateKey === 'lb')     renderLeaderboard();
+}
+
+function setWeekMode(stateKey, mode) {
+  filterState[stateKey].mode = mode;
+  if (stateKey === 'payout') renderPayout();
+  if (stateKey === 'stats')  renderStats();
+  if (stateKey === 'lb')     renderLeaderboard();
+}
+
+// ── Core ─────────────────────────────────────────────────────
+function isClassDay() {
+  var day = new Date().getDay();
+  if (day < 2 || day > 5) return false;
+  if (isHoliday(TODAY)) return false;
+  return true;
+}
+
+function getClassDayMessage() {
+  var day = new Date().getDay();
+  var names = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+  var holiday = getHolidayInfo(TODAY);
+  if (holiday) {
+    return "No class today — " + holiday.name + " 🇿🇦";
+  }
+  return "No class on " + names[day] + ". Classes run Tuesday to Friday only.";
+}
+
+var students = [];
+var attendance = [];
+var payStatus = {};
+
+async function sb(method, table, body, params) {
+  params = params || "";
+  var res = await fetch(SUPABASE_URL + "/rest/v1/" + table + params, {
+    method: method,
+    headers: { "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY, "Content-Type": "application/json", "Prefer": "return=representation" },
+    body: body ? JSON.stringify(body) : null
+  });
+  var text = await res.text();
+  if (!text) return [];
+  try { return JSON.parse(text); } catch(e) { return []; }
+}
+
+function doLogin() {
+  if (document.getElementById("pwInput").value === PW) {
+    document.getElementById("loginPage").style.display = "none";
+    var appEl = document.getElementById("app");
+    appEl.style.display = "flex";
+    appEl.classList.add("visible");
+    API_KEY = localStorage.getItem("ek_key") || "";
+    updateDate(); loadStudents();
+    if (!API_KEY) {
+      setTimeout(function() {
+        go('settings');
+        document.getElementById("tSettingsMsg").innerHTML = '<div class="alert alert-err">No API key set — please enter your Blink API key to enable payments</div>';
+      }, 800);
+    }
+  } else {
+    document.getElementById("pwErr").innerHTML = '<div class="err-msg">Incorrect password</div>';
+    document.getElementById("pwInput").value = "";
+  }
+}
+
+function doLogout() {
+  document.getElementById("loginPage").style.display = "flex";
+  var appEl = document.getElementById("app");
+  appEl.style.display = "none";
+  appEl.classList.remove("visible");
+  document.getElementById("pwInput").value = "";
+  document.getElementById("pwErr").innerHTML = "";
+}
+
+
+// ── Mobile Navigation ─────────────────────────────────────────
+var mainPages = ["attend","payout","leaderboard","stats","more"];
+var innerPages = ["roster","chapters","monthly","test","settings"];
+var allPages = mainPages.concat(innerPages);
+var currentInner = null;
+
+function go(name) {
+  allPages.forEach(function(p) {
+    var pg = document.getElementById("p-" + p);
+    if (pg) pg.classList.toggle("show", p === name);
+  });
+  mainPages.forEach(function(p) {
+    var nb = document.getElementById("nav-" + p);
+    if (nb) nb.classList.toggle("active", p === name);
+  });
+  if (name === "payout")      renderPayout();
+  if (name === "leaderboard") renderLeaderboard();
+  if (name === "stats")       renderStats();
+  if (name === "roster")      { renderRoster(); currentInner = "roster"; }
+  if (name === "chapters")    { renderChaptersPage(); currentInner = "chapters"; }
+  if (name === "monthly")     { renderMonthly(); currentInner = "monthly"; }
+  if (name === "test")        { renderTest(); currentInner = "test"; }
+  if (name === "settings")    { updateTeacherKeyBadge(); currentInner = "settings"; }
+}
+
+function goInner(name) {
+  go(name);
+}
+
+function goBack() {
+  go("more");
+  currentInner = null;
+}
+
+function updateDate() {
+  var d = new Date();
+  var days = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+  var months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  document.getElementById("dateEl").textContent = days[d.getDay()] + ", " + d.getDate() + " " + months[d.getMonth()] + " " + d.getFullYear();
+}
+
+async function loadStudents() {
+  var raw = await sb("GET","students",null,"?teacher_id=eq." + TEACHER_ID + "&order=created_at.asc");
+  if (!raw || !raw.length) { students = []; attendance = []; renderAll(); return; }
+  var ids = raw.map(function(s) { return s.id; }).join(",");
+  var attRaw = await sb("GET","attendance",null,"?student_id=in.(" + ids + ")");
+  attendance = attRaw || [];
+  students = raw.map(function(s) {
+    var att = {};
+    attendance.filter(function(a) { return a.student_id === s.id; }).forEach(function(a) { att[a.date] = true; });
+    return Object.assign({}, s, { att: att });
+  });
+  renderAll();
+}
+
+function renderAll() { updateStats(); renderAttend(); checkLowAttendance(); checkEndOfWeek(); }
+
+function updateStats() {
+  var present = students.filter(function(s) { return s.att && s.att[TODAY]; }).length;
+  var owed = students.reduce(function(a, s) {
+    return a + Math.max(0, Object.keys(s.att || {}).length * SATS + (s.bonus || 0) - (s.paid || 0));
+  }, 0);
+  document.getElementById("sStudents").textContent = students.length;
+  document.getElementById("sToday").textContent = present + "/" + students.length;
+  document.getElementById("sOwed").textContent = owed;
+  document.getElementById("streakEl").textContent = present + "/" + students.length + " present today";
+  var badge = document.getElementById("nav-owed");
+  if (badge) { if (owed > 0) { badge.textContent = owed; badge.style.display = ""; } else badge.style.display = "none"; }
+}
+
+function renderAttend() {
+  var el = document.getElementById("attendList");
+  if (!students.length) { el.innerHTML = '<div class="empty"><div class="empty-title">No students enrolled</div><div class="empty-sub">Go to My Roster to add students</div></div>'; return; }
+  var classDay = isClassDay();
+  var html = "";
+  if (!classDay) {
+    // Show students in read-only mode with a banner
+    html += '<div style="background:var(--red-bg);border-bottom:1px solid rgba(239,68,68,0.2);padding:12px 20px;font-size:12px;color:var(--red);font-family:\'DM Mono\',monospace">' + getClassDayMessage() + '</div>';
+  }
+  students.forEach(function(s) {
+    var here = !!(s.att && s.att[TODAY]);
+    var days = Object.keys(s.att || {}).length;
+    html += '<div class="attend-row">';
+    html += '<div><div class="attend-name">' + s.name + '</div>';
+    html += '<div class="attend-sub">' + days + ' days &middot; ' + (days * SATS) + ' sats earned</div></div>';
+    if (classDay) {
+      html += '<button class="toggle ' + (here ? 'on' : '') + '" onclick="toggleAttend(\'' + s.id + '\')"></button>';
+      html += '<span class="badge ' + (here ? 'badge-green' : 'badge-gray') + '">' + (here ? 'PRESENT' : 'ABSENT') + '</span>';
+    } else {
+      html += '<button class="toggle" disabled style="opacity:0.25;cursor:not-allowed;pointer-events:none"></button>';
+      html += '<span class="badge badge-gray" style="opacity:0.4">LOCKED</span>';
+    }
+    html += '</div>';
+  });
+  el.innerHTML = html;
+}
+
+async function toggleAttend(id) {
+  if (!isClassDay()) return;
+  var s = students.find(function(x) { return x.id === id; });
+  if (!s) return;
+  var isPresent = !!(s.att && s.att[TODAY]);
+  if (isPresent) { await sb("DELETE","attendance",null,"?student_id=eq." + id + "&date=eq." + TODAY); }
+  else { await sb("POST","attendance",{ student_id: id, date: TODAY },null); }
+  await loadStudents();
+}
+
+async function markAll() {
+  if (!isClassDay()) { alert(getClassDayMessage()); return; }
+  for (var i = 0; i < students.length; i++) {
+    var s = students[i];
+    if (!(s.att && s.att[TODAY])) await sb("POST","attendance",{ student_id: s.id, date: TODAY },null);
+  }
+  await loadStudents();
+}
+
+// ── Payouts (week filter) ─────────────────────────────────────
+async function handleGrantBonus() {
+  var alertEl = document.getElementById("bonusAlert");
+  var qualifying = students.filter(function(s) { return hasPerfectWeek(s, 0); });
+  if (!qualifying.length) {
+    alertEl.innerHTML = '<div class="alert alert-info">No students have a perfect week yet (need all 4 days Tue-Fri)</div>';
+    setTimeout(function() { alertEl.innerHTML = ""; }, 4000);
+    return;
+  }
+  var names = qualifying.map(function(s){ return s.name; }).join(", ");
+  if (!confirm("Grant 500 bonus sats to " + qualifying.length + " student(s)?\n\n" + names)) return;
+  var btn = document.getElementById("bonusBtn");
+  btn.disabled = true;
+  alertEl.innerHTML = '<div class="alert alert-info">Granting bonuses...</div>';
+  var granted = await checkAndGrantBonuses();
+  if (granted.length) {
+    alertEl.innerHTML = '<div class="alert alert-ok">Perfect Week Bonus granted to: ' + granted.join(", ") + '</div>';
+  } else {
+    alertEl.innerHTML = '<div class="alert alert-err">Something went wrong. Try again.</div>';
+  }
+  btn.disabled = false;
+  setTimeout(function() { alertEl.innerHTML = ""; }, 6000);
+  renderPayout();
+}
+
+function renderPayout() {
+  var st = filterState.payout;
+  buildWeekFilter("payoutWeekFilter", "payout");
+  var el = document.getElementById("payoutList");
+  var summaryEl = document.getElementById("payoutWeekSummary");
+  if (!students.length) { el.innerHTML = '<div class="empty"><div class="empty-title">No students yet</div></div>'; summaryEl.innerHTML=""; return; }
+
+  var totalEarned = 0, totalOwed = 0, activeCount = 0;
+  var html = "";
+
+  students.forEach(function(s) {
+    var filtAtt = filterAttByWeek(s.att, st.offset, st.mode);
+    var days = Object.keys(filtAtt).length;
+    var earned = days * SATS;
+    var allTimeDays = Object.keys(s.att||{}).length;
+    var allTimeEarned = allTimeDays * SATS;
+    var paid = s.paid || 0;
+    var ps = payStatus[s.id];
+    var action = "";
+
+    if (st.mode === 'all') {
+      var realOwed = Math.max(0, allTimeEarned + (s.bonus||0) - paid);
+      totalEarned += allTimeEarned;
+      totalOwed += realOwed;
+      if (allTimeDays > 0) activeCount++;
+      if (ps === "loading") action = '<span class="badge badge-orange"><span class="spinner"></span> Sending</span>';
+      else if (ps && ps.indexOf("ok:") === 0) action = '<span class="badge badge-green">' + ps.slice(3) + '</span>';
+      else if (ps && ps.indexOf("err:") === 0) action = '<span style="color:var(--red);font-size:11px;font-family:\'DM Mono\',monospace">' + ps.slice(4).slice(0,30) + '</span>';
+      else if (realOwed > 0) action = '<button class="btn btn-green btn-sm" onclick="paySingle(\'' + s.id + '\',' + realOwed + ')">Pay ' + realOwed + '</button>';
+      else if (allTimeEarned > 0) action = '<span class="badge badge-green">All paid</span>';
+      else action = '<span class="badge badge-gray">No earnings</span>';
+      html += '<div class="payout-row"><div><div style="font-weight:600;font-size:14px">' + s.name + '</div><div class="payout-dest">' + (s.destination||'No address set') + '</div></div>';
+      html += '<div style="text-align:right" class="num-orange">' + allTimeEarned + '</div>';
+      html += '<div style="text-align:right" class="num-green">' + paid + '</div>';
+      html += '<div style="text-align:right;font-weight:700;color:' + (realOwed>0?'var(--orange)':'var(--green)') + ';font-family:\'DM Mono\',monospace">' + realOwed + '</div>';
+      html += '<div style="text-align:right">' + action + '</div></div>';
+    } else {
+      var weekOwed = Math.max(0, earned - Math.min(paid, earned));
+      totalEarned += earned;
+      totalOwed += weekOwed;
+      if (days > 0) activeCount++;
+      if (days === 0) action = '<span class="badge badge-gray">No sessions</span>';
+      else action = '<span class="badge badge-blue">' + days + ' day' + (days!==1?'s':'') + '</span>';
+      html += '<div class="payout-row"><div><div style="font-weight:600;font-size:14px">' + s.name + '</div><div class="payout-dest">' + (s.destination||'No address set') + '</div></div>';
+      html += '<div style="text-align:right" class="num-orange">' + earned + '</div>';
+      html += '<div style="text-align:right" class="num-green">' + paid + '</div>';
+      html += '<div style="text-align:right;font-weight:700;color:' + (weekOwed>0?'var(--orange)':'var(--green)') + ';font-family:\'DM Mono\',monospace">' + weekOwed + '</div>';
+      html += '<div style="text-align:right">' + action + '</div></div>';
+    }
+  });
+  el.innerHTML = html;
+
+  var label = st.mode === 'all' ? 'All Time' : formatClassWeekLabel(st.offset);
+  summaryEl.innerHTML =
+    '<div class="week-summary-card"><div class="week-summary-val">' + activeCount + '</div><div class="week-summary-label">Active ' + label + '</div></div>' +
+    '<div class="week-summary-card"><div class="week-summary-val">' + totalEarned + '</div><div class="week-summary-label">Sats Earned</div></div>' +
+    '<div class="week-summary-card"><div class="week-summary-val">' + totalOwed + '</div><div class="week-summary-label">Sats Owed</div></div>';
+}
+
+async function paySingle(id, owed) {
+  var s = students.find(function(x) { return x.id === id; });
+  if (!s) return;
+  payStatus[id] = "loading"; renderPayout();
+  try {
+    var ctrl = new AbortController();
+    setTimeout(function() { ctrl.abort(); }, 30000);
+    var res = await fetch(BACKEND + "/pay", {
+      method: "POST", signal: ctrl.signal,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ apiKey: API_KEY, destination: s.destination, amount: owed })
+    });
+    var data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Failed");
+    await sb("PATCH","students",{ paid: (s.paid||0) + owed },"?id=eq." + id);
+    payStatus[id] = "ok:Sent " + owed + " sats";
+    await loadStudents();
+  } catch(e) { payStatus[id] = "err:" + e.message; }
+  renderPayout();
+}
+
+async function payAll() {
+  var owing = students.filter(function(s) { return Math.max(0, Object.keys(s.att||{}).length*SATS+(s.bonus||0)-(s.paid||0)) > 0; });
+  if (!owing.length) return;
+  var alertEl = document.getElementById("payAlert");
+  for (var i = 0; i < owing.length; i++) {
+    var s = owing[i];
+    var owed = Math.max(0, Object.keys(s.att||{}).length*SATS+(s.bonus||0)-(s.paid||0));
+    alertEl.innerHTML = '<div class="alert alert-info">Sending payment ' + (i+1) + ' of ' + owing.length + '...</div>';
+    await paySingle(s.id, owed);
+  }
+  alertEl.innerHTML = '<div class="alert alert-ok">Done! ' + owing.length + ' payment' + (owing.length!==1?'s':'') + ' sent!</div>';
+  setTimeout(function() { alertEl.innerHTML = ""; }, 5000);
+}
+
+// ── Statistics (week filter) ──────────────────────────────────
+function renderStats() {
+  var st = filterState.stats;
+  buildWeekFilter("statsWeekFilter", "stats");
+  var el = document.getElementById("statsList");
+  var summaryEl = document.getElementById("statsWeekSummary");
+  if (!students.length) { el.innerHTML = '<div class="empty"><div class="empty-title">No students yet</div></div>'; summaryEl.innerHTML=""; return; }
+
+  var sorted = students.slice().sort(function(a,b) {
+    return Object.keys(filterAttByWeek(b.att,st.offset,st.mode)).length -
+           Object.keys(filterAttByWeek(a.att,st.offset,st.mode)).length;
+  });
+
+  var totalDays = 0;
+  var html = "";
+  sorted.forEach(function(s) {
+    var filtAtt = filterAttByWeek(s.att, st.offset, st.mode);
+    var days = Object.keys(filtAtt).length;
+    var earned = days * SATS;
+    var paid = st.mode === 'all' ? (s.paid||0) : 0;
+    var owed = Math.max(0, earned - paid);
+    totalDays += days;
+    html += '<div class="attend-row">';
+    html += '<div><div class="attend-name">' + s.name + '</div>';
+    html += '<div class="attend-sub">' + days + ' days attended &middot; ' + earned + ' sats earned</div></div>';
+    html += '<div style="text-align:right"><div class="num-orange">' + earned + ' sats</div>';
+    if (st.mode === 'all') {
+      html += '<div style="font-size:11px;color:var(--green);font-family:\'DM Mono\',monospace;margin-top:2px">' + paid + ' paid &middot; ' + owed + ' owed</div>';
+    }
+    html += '</div>';
+    html += '<span class="badge ' + (days>0?'badge-green':'badge-gray') + '">' + days + ' days</span>';
+    html += '</div>';
+  });
+  el.innerHTML = html;
+
+  var label = st.mode === 'all' ? 'All Time' : formatClassWeekLabel(st.offset);
+  var activeCount = sorted.filter(function(s){ return Object.keys(filterAttByWeek(s.att,st.offset,st.mode)).length > 0; }).length;
+  summaryEl.innerHTML =
+    '<div class="week-summary-card"><div class="week-summary-val">' + activeCount + '</div><div class="week-summary-label">Active ' + label + '</div></div>' +
+    '<div class="week-summary-card"><div class="week-summary-val">' + (students.length ? (totalDays/students.length).toFixed(1) : '0') + '</div><div class="week-summary-label">Avg Days / Student</div></div>' +
+    '<div class="week-summary-card"><div class="week-summary-val">' + (totalDays*SATS) + '</div><div class="week-summary-label">Sats Earned</div></div>';
+}
+
+// ── Leaderboard (week filter) ─────────────────────────────────
+function renderLeaderboard() {
+  var st = filterState.lb;
+  buildWeekFilter("lbWeekFilter", "lb");
+  var el = document.getElementById("lbList");
+  var banner = document.getElementById("lbStarBanner");
+  if (!students.length) { el.innerHTML = '<div class="empty"><div class="empty-title">No data yet</div></div>'; if(banner)banner.innerHTML=""; return; }
+
+  var maxPossible = st.mode === 'all' ? null : 4;
+
+  var data = students.map(function(s) {
+    var filtAtt = filterAttByWeek(s.att, st.offset, st.mode);
+    var days = Object.keys(filtAtt).length;
+    var streak = 0;
+    if (st.mode === 'week') {
+      var r = getClassWeekRange(st.offset);
+      var classDates = [];
+      var cur = new Date(r.start + "T00:00:00");
+      var end = new Date(r.end + "T00:00:00");
+      var todayD = new Date(TODAY + "T00:00:00");
+      while (cur <= end && cur <= todayD) {
+        classDates.push(cur.toISOString().split("T")[0]);
+        cur.setDate(cur.getDate() + 1);
+      }
+      for (var ci = classDates.length - 1; ci >= 0; ci--) {
+        if (filtAtt[classDates[ci]]) streak++;
+        else break;
+      }
+    }
+    return { name: s.name, days: days, sats: days * SATS + (s.bonus||0), bonus: s.bonus||0, streak: streak };
+  }).sort(function(a,b) { return b.days - a.days || b.streak - a.streak; });
+
+  var maxDays = data[0] ? data[0].days : 0;
+  if (!maxDays) {
+    el.innerHTML = '<div class="empty"><div class="empty-title">No attendance ' + (st.mode==='all'?'recorded':'this week') + '</div></div>';
+    if(banner)banner.innerHTML = "";
+    return;
+  }
+
+  // Star Student Banner
+  var star = data[0];
+  var isPerfect = maxPossible && star.days >= maxPossible;
+  if (banner) {
+    banner.innerHTML =
+      '<div class="star-banner">' +
+      '<span class="star-banner-crown">' + (isPerfect ? '👑' : '⭐') + '</span>' +
+      '<div class="star-banner-label">' + (st.mode==='all'?'All-Time Leader':'⭐ Star Student of the Week ⭐') + '</div>' +
+      '<div class="star-banner-name">' + star.name + '</div>' +
+      '<div class="star-banner-stats">' +
+      '<div class="star-stat"><div class="star-stat-val">' + star.days + '</div><div class="star-stat-label">Days</div></div>' +
+      '<div class="star-stat"><div class="star-stat-val">⚡' + star.sats + '</div><div class="star-stat-label">Sats Earned</div></div>' +
+      (star.streak > 1 ? '<div class="star-stat"><div class="star-stat-val">🔥' + star.streak + '</div><div class="star-stat-label">Day Streak</div></div>' : '') +
+      (isPerfect ? '<div class="star-stat"><div class="star-stat-val">💯</div><div class="star-stat-label">Perfect Week!</div></div>' : '') + (star.bonus > 0 ? '<div class="star-stat"><div class="star-stat-val" style="color:#ffd700">+' + star.bonus + '</div><div class="star-stat-label">Bonus Sats</div></div>' : '') +
+      '</div></div>';
+  }
+
+  var medals = ['🥇','🥈','🥉'];
+  var rankColors = ["#ffd700","#c0c0c0","#cd7f32"];
+  var gradients = [
+    "linear-gradient(90deg,#ffd700,#ffed4a)",
+    "linear-gradient(90deg,#c0c0c0,#e8e8e8)",
+    "linear-gradient(90deg,#cd7f32,#e8a96a)",
+    "linear-gradient(90deg,var(--orange),var(--orange-light))"
+  ];
+  var html = "";
+  data.forEach(function(s, i) {
+    var barPct = maxPossible ? Math.round((s.days/maxPossible)*100) : Math.round((s.days/maxDays)*100);
+    var fillColor = i < 3 ? rankColors[i] : "var(--orange)";
+    var gradient = i < 3 ? gradients[i] : gradients[3];
+    var rankClass = i < 3 ? " rank"+(i+1) : "";
+    var isPerfectRow = maxPossible && s.days >= maxPossible;
+    html += '<div class="lb-row-new' + rankClass + '">';
+    if (i < 3) {
+      html += '<div class="lb-medal">' + medals[i] + '</div>';
+    } else {
+      html += '<div class="lb-rank-num">' + (i+1) + '</div>';
+    }
+    html += '<div style="flex:1;min-width:0">';
+    html += '<div class="lb-student-name">' + s.name + '</div>';
+    html += '<div class="lb-progress-bar"><div class="lb-progress-fill" style="width:' + barPct + '%;background:' + gradient + '"></div></div>';
+    html += '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px">';
+    if (isPerfectRow) html += '<span class="lb-perfect">✓ Perfect Week</span>';
+    if (s.streak >= 2 && st.mode === 'week') html += '<span class="lb-streak">🔥 ' + s.streak + ' day streak</span>';
+    html += '</div></div>';
+    html += '<div class="lb-right">';
+    html += '<div class="lb-days-big" style="color:' + fillColor + '">' + s.days + '<span style="font-size:12px;font-weight:500;color:var(--text3)"> days</span></div>';
+    html += '<div class="lb-sats-earned">⚡ ' + s.sats + ' sats</div>';
+    html += '</div></div>';
+  });
+  el.innerHTML = html;
+}
+
+function renderRoster() {
+  var el = document.getElementById("rosterList");
+  if (!students.length) { el.innerHTML = '<div class="empty"><div class="empty-title">No students yet</div></div>'; return; }
+  var html = "";
+  students.forEach(function(s) {
+    var sid = s.id;
+    html += '<div class="roster-card">';
+    html += '<div class="roster-avatar">' + s.name.charAt(0).toUpperCase() + '</div>';
+    html += '<div style="flex:1;min-width:0">';
+    html += '<div style="font-weight:700;font-size:15px">' + s.name + '</div>';
+    html += '<div style="font-size:10px;color:var(--text3);font-family:DM Mono,monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:3px">' + (s.destination || 'No address set') + '</div>';
+    html += '</div>';
+    html += '<div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0">';
+    html += '<button class="big-btn big-btn-outline" onclick="openEdit(this.dataset.id)" data-id="' + sid + '" style="margin:0;padding:10px 14px;font-size:12px;border-radius:8px">✏️</button>';
+    html += '<button class="big-btn" onclick="delStudent(this.dataset.id)" data-id="' + sid + '" style="margin:0;padding:10px 14px;font-size:12px;border-radius:8px;background:var(--red-bg);color:var(--red);border:1px solid rgba(239,68,68,0.3)">✕</button>';
+    html += '</div></div>';
+  });
+  el.innerHTML = html;
+}
+
+
+async function addStudent() {
+  var name = document.getElementById("rName").value.trim();
+  var dest = document.getElementById("rDest").value.trim();
+  var err = document.getElementById("rErr");
+  err.innerHTML = "";
+  if (!name) { err.innerHTML = '<div class="alert alert-err">Enter student name</div>'; return; }
+  if (!dest) { err.innerHTML = '<div class="alert alert-err">Enter Lightning address</div>'; return; }
+  err.innerHTML = '<div class="alert alert-info">Enrolling...</div>';
+  var result = await sb("POST","students",{ name: name, destination: dest, teacher_id: TEACHER_ID, paid: 0 },null);
+  if (result && result.length) {
+    document.getElementById("rName").value = "";
+    document.getElementById("rDest").value = "";
+    await loadStudents(); renderRoster();
+    err.innerHTML = '<div class="alert alert-ok">' + name + ' enrolled!</div>';
+    setTimeout(function() { err.innerHTML = ""; }, 3000);
+  } else {
+    err.innerHTML = '<div class="alert alert-err">Failed to enroll. Try again.</div>';
+  }
+}
+
+async function delStudent(id) {
+  var s = students.find(function(x) { return x.id === id; });
+  if (!confirm("Remove " + (s ? s.name : "") + " from your class?")) return;
+  await sb("DELETE","attendance",null,"?student_id=eq." + id);
+  await sb("DELETE","students",null,"?id=eq." + id);
+  await loadStudents(); renderRoster();
+}
+
+function updateTeacherKeyBadge() {
+  var el = document.getElementById("tKeyBadge");
+  if (!el) return;
+  if (API_KEY) el.innerHTML = '<span style="background:var(--green-bg);color:var(--green);border:1px solid rgba(34,197,94,0.2);padding:3px 10px;border-radius:6px;font-size:11px;font-family:\'DM Mono\',monospace">Key saved</span>';
+  else el.innerHTML = '<span style="background:var(--red-bg);color:var(--red);border:1px solid rgba(239,68,68,0.2);padding:3px 10px;border-radius:6px;font-size:11px;font-family:\'DM Mono\',monospace">No key set</span>';
+}
+
+async function testTeacherBlink() {
+  var k = document.getElementById("tKey").value.trim() || API_KEY;
+  if (!k) { document.getElementById("tSettingsMsg").innerHTML = '<div class="alert alert-err">Enter API key first</div>'; return; }
+  document.getElementById("tSettingsMsg").innerHTML = '<div class="alert alert-info">Testing connection...</div>';
+  try {
+    var res = await fetch(BACKEND + "/test", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ apiKey: k }) });
+    var data = await res.json();
+    if (data.success) {
+      document.getElementById("tSettingsMsg").innerHTML = '<div class="alert alert-ok">Connected! Balance: ' + data.balance + ' sats</div>';
+    } else {
+      document.getElementById("tSettingsMsg").innerHTML = '<div class="alert alert-err">' + (data.error||'Connection failed') + '</div>';
+    }
+  } catch(e) {
+    document.getElementById("tSettingsMsg").innerHTML = '<div class="alert alert-err">' + e.message + '</div>';
+  }
+}
+
+function saveTeacherSettings() {
+  var k = document.getElementById("tKey").value.trim();
+  if (!k) { document.getElementById("tSettingsMsg").innerHTML = '<div class="alert alert-err">Enter API key first</div>'; return; }
+  API_KEY = k;
+  localStorage.setItem("ek_key", k);
+  document.getElementById("tKey").value = "";
+  updateTeacherKeyBadge();
+  document.getElementById("tSettingsMsg").innerHTML = '<div class="alert alert-ok">API key saved!</div>';
+  setTimeout(function() { document.getElementById("tSettingsMsg").innerHTML = ""; }, 3000);
+}
+
+function saveTeacherPassword() {
+  var p = document.getElementById("tNewPw").value.trim();
+  if (!p || p.length < 4) { document.getElementById("tSettingsMsg").innerHTML = '<div class="alert alert-err">Password must be at least 4 characters</div>'; return; }
+  PW = p;
+  localStorage.setItem("ek_pw", p);
+  document.getElementById("tNewPw").value = "";
+  document.getElementById("tCurPw").textContent = "Current: " + p;
+  document.getElementById("tSettingsMsg").innerHTML = '<div class="alert alert-ok">Password updated!</div>';
+  setTimeout(function() { document.getElementById("tSettingsMsg").innerHTML = ""; }, 3000);
+}
+
+function renderTest() {
+  var sel = document.getElementById("testStudent");
+  sel.innerHTML = '<option value="">-- Choose student --</option>';
+  students.forEach(function(s) {
+    var opt = document.createElement("option");
+    opt.value = s.id; opt.textContent = s.name;
+    sel.appendChild(opt);
+  });
+  document.getElementById("testResult").innerHTML = "";
+  document.getElementById("testDestPreview").textContent = "";
+}
+
+function previewTestDest() {
+  var id = document.getElementById("testStudent").value;
+  var s = students.find(function(x) { return x.id === id; });
+  document.getElementById("testDestPreview").textContent = s ? "Address: " + (s.destination || "none set") : "";
+}
+
+async function sendTestPayment() {
+  var id = document.getElementById("testStudent").value;
+  var amount = parseInt(document.getElementById("testAmount").value);
+  var result = document.getElementById("testResult");
+  if (!id) { result.innerHTML = '<div class="alert alert-err">Please select a student</div>'; return; }
+  if (!amount || amount < 1 || amount > 10) { result.innerHTML = '<div class="alert alert-err">Amount must be 1–10 sats</div>'; return; }
+  var s = students.find(function(x) { return x.id === id; });
+  if (!s || !s.destination) { result.innerHTML = '<div class="alert alert-err">Student has no Lightning address</div>'; return; }
+  result.innerHTML = '<div class="alert alert-info">Sending ' + amount + ' sats to ' + s.name + '...</div>';
+  try {
+    var ctrl = new AbortController();
+    setTimeout(function() { ctrl.abort(); }, 30000);
+    var res = await fetch(BACKEND + "/pay", {
+      method: "POST", signal: ctrl.signal,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ apiKey: API_KEY, destination: s.destination, amount: amount })
+    });
+    var data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Payment failed");
+    result.innerHTML = '<div class="alert alert-ok">Test successful! Sent ' + amount + ' sats to ' + s.name + '</div>';
+  } catch(e) {
+    result.innerHTML = '<div class="alert alert-err">Test failed: ' + e.message + '</div>';
+  }
+}
+
+// ── Chapter Tracker ───────────────────────────────────────────
+const CHAPTERS = [
+  { num: 1,  title: "Why Do We Need Money?",               topics: ["Meet Satoshi", "Why money exists", "Class discussion"] },
+  { num: 2,  title: "What is Money?",                      topics: ["Definition of money", "Functions of money", "Unit of account", "Divisibility"] },
+  { num: 3,  title: "The History of Money",                topics: ["Barter game", "Evolution from barter", "Problems with early money"] },
+  { num: 4,  title: "What is Fiat Money and Who Controls it?", topics: ["History of fiat", "The fiat system", "Money by decree"] },
+  { num: 5,  title: "How Problems Lead to Solutions",      topics: ["Purchasing power", "Monetary inflation", "Inflation auction"] },
+  { num: 6,  title: "An Introduction to Bitcoin",          topics: ["Satoshi Nakamoto", "How Bitcoin works", "Nakamoto Consensus", "The players"] },
+  { num: 7,  title: "How to Use Bitcoin",                  topics: ["Acquiring Bitcoin", "P2P physical & online", "Wallets", "Exchanges"] },
+  { num: 8,  title: "Lightning Network",                   topics: ["Lightning explained", "Lightning wallets", "Daily life use"] },
+  { num: 9,  title: "The Technical Side of Bitcoin",       topics: ["Public & private keys", "Cryptography", "Hashing"] },
+  { num: 10, title: "Why Bitcoin?",                        topics: ["CBDCs", "Philosophy of Bitcoin", "Right to control your money"] }
+];
+
+var chapterLog = []; // loaded from Supabase
+
+async function loadChapterLog() {
+  var raw = await sb("GET","chapters",null,"?teacher_id=eq." + TEACHER_ID + "&order=date.desc");
+  chapterLog = raw || [];
+}
+
+async function renderChaptersPage() {
+  // Set today's date label
+  var months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  var d = new Date();
+  document.getElementById("chapterTodayDate").textContent = d.getDate() + " " + months[d.getMonth()] + " " + d.getFullYear();
+
+  await loadChapterLog();
+
+  // Populate chapter select
+  var sel = document.getElementById("chapterSelect");
+  sel.innerHTML = '<option value="">— Select chapter —</option>';
+  CHAPTERS.forEach(function(c) {
+    var opt = document.createElement("option");
+    opt.value = c.num;
+    opt.textContent = "Chapter " + c.num + " — " + c.title;
+    sel.appendChild(opt);
+  });
+
+  // Pre-select if today already has an entry
+  var todayEntry = chapterLog.find(function(e) { return e.date === TODAY; });
+  if (todayEntry) {
+    sel.value = todayEntry.chapter;
+    document.getElementById("chapterNotes").value = todayEntry.notes || "";
+    onChapterSelect();
+  }
+
+  renderChapterProgress();
+  renderChapterHistory();
+}
+
+function onChapterSelect() {
+  var num = parseInt(document.getElementById("chapterSelect").value);
+  var preview = document.getElementById("chapterTopicsPreview");
+  var list = document.getElementById("chapterTopicsList");
+  if (!num) { preview.style.display = "none"; return; }
+  var ch = CHAPTERS.find(function(c) { return c.num === num; });
+  if (!ch) { preview.style.display = "none"; return; }
+  list.innerHTML = ch.topics.map(function(t) {
+    return '<span class="topic-chip">' + t + '</span>';
+  }).join("");
+  preview.style.display = "block";
+}
+
+async function saveChapterEntry() {
+  var num = parseInt(document.getElementById("chapterSelect").value);
+  var notes = document.getElementById("chapterNotes").value.trim();
+  var msg = document.getElementById("chapterSaveMsg");
+  if (!num) { msg.innerHTML = '<div class="alert alert-err">Please select a chapter</div>'; return; }
+  msg.innerHTML = '<div class="alert alert-info">Saving...</div>';
+
+  // Check if today already has an entry — update it
+  var existing = chapterLog.find(function(e) { return e.date === TODAY; });
+  var result;
+  if (existing) {
+    result = await sb("PATCH","chapters",{ chapter: num, notes: notes },"?id=eq." + existing.id);
+  } else {
+    result = await sb("POST","chapters",{ teacher_id: TEACHER_ID, date: TODAY, chapter: num, notes: notes },null);
+  }
+
+  if (result && (result.length || result.id)) {
+    msg.innerHTML = '<div class="alert alert-ok">&#10003; Chapter ' + num + ' saved for today!</div>';
+    setTimeout(function() { msg.innerHTML = ""; }, 3000);
+    await loadChapterLog();
+    renderChapterProgress();
+    renderChapterHistory();
+  } else {
+    msg.innerHTML = '<div class="alert alert-err">Failed to save. Try again.</div>';
+  }
+}
+
+function renderChapterProgress() {
+  var el = document.getElementById("chapterProgress");
+  // Count sessions per chapter
+  var counts = {};
+  chapterLog.forEach(function(e) { counts[e.chapter] = (counts[e.chapter]||0) + 1; });
+  var totalDone = Object.keys(counts).length;
+
+  var html = '';
+  // Progress bar
+  var pct = Math.round((totalDone / 10) * 100);
+  html += '<div style="margin-bottom:16px">';
+  html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">';
+  html += '<span style="font-size:12px;color:var(--text3);font-family:\'DM Mono\',monospace">' + totalDone + '/10 chapters started</span>';
+  html += '<span style="font-size:12px;font-weight:700;color:var(--orange);font-family:\'DM Mono\',monospace">' + pct + '%</span>';
+  html += '</div>';
+  html += '<div style="height:6px;background:var(--bg4);border-radius:3px;overflow:hidden">';
+  html += '<div style="height:100%;width:' + pct + '%;background:linear-gradient(90deg,var(--orange),var(--orange-light));border-radius:3px;transition:width 1s ease"></div>';
+  html += '</div></div>';
+
+  CHAPTERS.forEach(function(c) {
+    var sessions = counts[c.num] || 0;
+    var isDone = sessions > 0;
+    var isActive = chapterLog.length > 0 && chapterLog[0].chapter === c.num;
+    html += '<div class="chapter-progress-item' + (isDone?' done':'') + (isActive?' active':'') + '">';
+    html += '<div class="chapter-num' + (isDone?' done':'') + (isActive&&!isDone?' active':'') + '">';
+    html += isDone ? '&#10003;' : c.num;
+    html += '</div>';
+    html += '<div><div class="chapter-title' + (isDone?' done':'') + '">Chapter ' + c.num + ' — ' + c.title + '</div>';
+    html += '<div class="chapter-sessions">' + (sessions > 0 ? sessions + ' session' + (sessions!==1?'s':'') + ' taught' : 'Not started') + '</div></div>';
+    html += '<div class="chapter-days-badge' + (isDone?' done':'') + '">' + (sessions>0?sessions+'×':'—') + '</div>';
+    html += '</div>';
+  });
+  el.innerHTML = html;
+}
+
+function renderChapterHistory() {
+  var el = document.getElementById("chapterHistory");
+  if (!chapterLog.length) {
+    el.innerHTML = '<div class="empty"><div class="empty-title">No entries yet</div><div class="empty-sub">Record your first chapter above</div></div>';
+    return;
+  }
+  var months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  var html = "";
+  chapterLog.forEach(function(e) {
+    var ch = CHAPTERS.find(function(c) { return c.num === e.chapter; });
+    var d = new Date(e.date + "T00:00:00");
+    var days = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+    var dateStr = days[d.getDay()] + " " + d.getDate() + " " + months[d.getMonth()];
+    html += '<div class="chapter-history-row">';
+    html += '<div class="chapter-history-header">';
+    html += '<span class="chapter-badge">Ch.' + e.chapter + '</span>';
+    html += '<span style="font-size:13px;font-weight:600">' + (ch ? ch.title : 'Chapter ' + e.chapter) + '</span>';
+    html += '<span class="chapter-history-date">' + dateStr + '</span>';
+    html += '</div>';
+    if (e.notes) {
+      html += '<div class="chapter-history-notes">' + e.notes + '</div>';
+    }
+    if (ch) {
+      html += '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px">';
+      ch.topics.forEach(function(t) { html += '<span class="topic-chip">' + t + '</span>'; });
+      html += '</div>';
+    }
+    html += '</div>';
+  });
+  el.innerHTML = html;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// FEATURE: Low Attendance Warning
+// ═══════════════════════════════════════════════════════════════
+function checkLowAttendance() {
+  var el = document.getElementById("lowAttendWarn");
+  if (!el) return;
+  // Only warn if we have at least 1 class day this week
+  var r = getClassWeekRange(0);
+  var classDaysHeld = [];
+  var cur = new Date(r.start + "T00:00:00");
+  var today = new Date(TODAY + "T00:00:00");
+  var end = new Date(r.end + "T00:00:00");
+  while (cur <= end && cur <= today) {
+    classDaysHeld.push(cur.toISOString().split("T")[0]);
+    cur.setDate(cur.getDate() + 1);
+  }
+  if (!classDaysHeld.length) { el.innerHTML = ""; return; }
+
+  var lowStudents = students.filter(function(s) {
+    var weekAtt = filterAttByWeek(s.att, 0, "week");
+    var attended = Object.keys(weekAtt).length;
+    var pct = classDaysHeld.length > 0 ? (attended / classDaysHeld.length) * 100 : 100;
+    return pct < 50;
+  });
+
+  if (!lowStudents.length) { el.innerHTML = ""; return; }
+
+  el.innerHTML =
+    '<div class="warn-banner">' +
+    '<div class="warn-icon">⚠️</div>' +
+    '<div><div class="warn-title">Low Attendance Warning</div>' +
+    '<div class="warn-list">' +
+    lowStudents.map(function(s) {
+      var weekAtt = filterAttByWeek(s.att, 0, "week");
+      var attended = Object.keys(weekAtt).length;
+      var pct = Math.round((attended / classDaysHeld.length) * 100);
+      return s.name + " — " + attended + "/" + classDaysHeld.length + " days (" + pct + "%)";
+    }).join("<br>") +
+    "</div></div></div>";
+}
+
+// ═══════════════════════════════════════════════════════════════
+// FEATURE: Student Profile Modal
+// ═══════════════════════════════════════════════════════════════
+function openProfile(studentId) {
+  var s = students.find(function(x) { return x.id === studentId; });
+  if (!s) return;
+
+  var allDays = Object.keys(s.att || {}).sort();
+  var totalDays = allDays.length;
+  var totalSats = totalDays * SATS + (s.bonus || 0);
+  var paid = s.paid || 0;
+  var owed = Math.max(0, totalSats - paid);
+
+  // Attendance rate this week
+  var r = getClassWeekRange(0);
+  var weekAtt = filterAttByWeek(s.att, 0, "week");
+  var weekDays = Object.keys(weekAtt).length;
+
+  document.getElementById("profileAvatar").textContent = s.name.charAt(0).toUpperCase();
+  document.getElementById("profileName").textContent = s.name;
+  document.getElementById("profileDest").textContent = s.destination || "No Lightning address";
+
+  document.getElementById("profileStats").innerHTML =
+    '<div class="profile-stat"><div class="profile-stat-val">' + totalDays + '</div><div class="profile-stat-label">Total Days</div></div>' +
+    '<div class="profile-stat"><div class="profile-stat-val">⚡' + totalSats + '</div><div class="profile-stat-label">Sats Earned</div></div>' +
+    '<div class="profile-stat"><div class="profile-stat-val">' + weekDays + '/4</div><div class="profile-stat-label">This Week</div></div>';
+
+  // Build contribution graph — last 8 weeks (Tue-Fri only)
+  buildContribGraph(s);
+
+  // Weekly breakdown
+  buildWeeklyBreakdown(s);
+
+  document.getElementById("profileModal").style.display = "flex";
+  document.body.style.overflow = "hidden";
+}
+
+function closeProfile() {
+  document.getElementById("profileModal").style.display = "none";
+  document.body.style.overflow = "";
+}
+
+function buildContribGraph(s) {
+  var el = document.getElementById("profileCalendar");
+  var months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  var days = ["T","W","T","F"]; // Tue Wed Thu Fri
+  var today = new Date(TODAY + "T00:00:00");
+
+  // Go back 8 weeks from current week
+  var weeks = [];
+  for (var w = -7; w <= 0; w++) {
+    var r = getClassWeekRange(w);
+    var weekDays = [];
+    for (var d = 0; d < 4; d++) {
+      var cur = new Date(r.start + "T00:00:00");
+      cur.setDate(cur.getDate() + d);
+      weekDays.push(cur.toISOString().split("T")[0]);
+    }
+    weeks.push({ offset: w, days: weekDays, label: r.start });
+  }
+
+  // Header labels (week starts)
+  var html = '<div style="display:flex;gap:3px;margin-bottom:4px;margin-left:20px">';
+  weeks.forEach(function(w) {
+    var d = new Date(w.label + "T00:00:00");
+    html += '<div style="width:66px;font-size:8px;color:var(--text3);font-family:DM Mono,monospace;text-align:center">' + d.getDate() + " " + months[d.getMonth()] + '</div>';
+  });
+  html += '</div>';
+
+  // Day rows (Tue, Wed, Thu, Fri)
+  html += '<div style="display:flex;gap:0">';
+  // Day labels
+  html += '<div style="display:flex;flex-direction:column;gap:3px;margin-right:4px">';
+  days.forEach(function(d) {
+    html += '<div style="width:14px;height:14px;font-size:8px;color:var(--text3);display:flex;align-items:center;justify-content:center;font-family:DM Mono,monospace">' + d + '</div>';
+  });
+  html += '</div>';
+
+  // Week columns
+  weeks.forEach(function(w) {
+    html += '<div style="display:flex;flex-direction:column;gap:3px;margin-right:3px">';
+    w.days.forEach(function(date) {
+      var dateObj = new Date(date + "T00:00:00");
+      var isFuture = dateObj > today;
+      var isPresent = !!(s.att && s.att[date]);
+      var cls = isFuture ? "future" : (isPresent ? "present" : "empty");
+      var title = date + (isPresent ? " ✓" : (isFuture ? " (future)" : " ✗"));
+      html += '<div class="contrib-day ' + cls + '" title="' + title + '"></div>';
+    });
+    html += '</div>';
+  });
+  html += '</div>';
+
+  el.innerHTML = html;
+}
+
+function buildWeeklyBreakdown(s) {
+  var el = document.getElementById("profileWeekly");
+  var months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  var html = "";
+  for (var w = 0; w >= -7; w--) {
+    var r = getClassWeekRange(w);
+    var weekAtt = filterAttByWeek(s.att, w, "week");
+    var days = Object.keys(weekAtt).length;
+    var pct = Math.round((days / 4) * 100);
+    var d = new Date(r.start + "T00:00:00");
+    var label = w === 0 ? "This Week" : (w === -1 ? "Last Week" : d.getDate() + " " + months[d.getMonth()]);
+    var color = pct === 100 ? "var(--green)" : pct >= 75 ? "var(--orange)" : pct >= 50 ? "var(--orange-dim)" : "var(--red)";
+    html += '<div class="month-week-row">';
+    html += '<div style="font-size:12px;color:var(--text2);font-family:DM Mono,monospace">' + label + '</div>';
+    html += '<div class="month-bar"><div class="month-bar-fill" style="width:' + pct + '%;background:' + color + '"></div></div>';
+    html += '<div style="font-size:12px;font-weight:700;color:' + color + ';font-family:DM Mono,monospace;text-align:right">' + days + '/4</div>';
+    html += '<div style="font-size:12px;color:var(--text3);font-family:DM Mono,monospace;text-align:right">' + pct + '%</div>';
+    html += '</div>';
+  }
+  el.innerHTML = html;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// FEATURE: End of Week Summary (Fridays only)
+// ═══════════════════════════════════════════════════════════════
+function checkEndOfWeek() {
+  var day = new Date().getDay();
+  if (day !== 5) return; // Only on Fridays
+  var shown = sessionStorage.getItem("eow_shown_" + TODAY);
+  if (shown) return; // Only show once per session per day
+  sessionStorage.setItem("eow_shown_" + TODAY, "1");
+  setTimeout(showEowSummary, 1500); // Wait for data to load
+}
+
+function showEowSummary() {
+  if (!students.length) return;
+  var r = getClassWeekRange(0);
+  var months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  var startD = new Date(r.start + "T00:00:00");
+  var endD = new Date(r.end + "T00:00:00");
+
+  // Calculate week stats
+  var totalAttendances = 0;
+  var perfectStudents = [];
+  var totalSatsPaid = 0;
+
+  students.forEach(function(s) {
+    var weekAtt = filterAttByWeek(s.att, 0, "week");
+    var days = Object.keys(weekAtt).length;
+    totalAttendances += days;
+    if (days >= 4) perfectStudents.push(s.name);
+    totalSatsPaid += days * SATS;
+  });
+
+  var avgPct = students.length ? Math.round((totalAttendances / (students.length * 4)) * 100) : 0;
+  var weekLabel = startD.getDate() + " " + months[startD.getMonth()] + " – " + endD.getDate() + " " + months[endD.getMonth()];
+
+  document.getElementById("eowWeekLabel").textContent = "Week of " + weekLabel;
+  document.getElementById("eowStats").innerHTML =
+    '<div class="eow-stat"><div class="eow-stat-val">' + avgPct + '%</div><div class="eow-stat-label">Attendance Rate</div></div>' +
+    '<div class="eow-stat"><div class="eow-stat-val">' + totalAttendances + '</div><div class="eow-stat-label">Check-ins</div></div>' +
+    '<div class="eow-stat"><div class="eow-stat-val">⚡' + totalSatsPaid + '</div><div class="eow-stat-label">Sats Earned</div></div>';
+
+  // Top student this week
+  var topStudents = students.slice().sort(function(a,b) {
+    return Object.keys(filterAttByWeek(b.att,0,"week")).length - Object.keys(filterAttByWeek(a.att,0,"week")).length;
+  });
+  var top = topStudents[0];
+  var topDays = top ? Object.keys(filterAttByWeek(top.att,0,"week")).length : 0;
+  document.getElementById("eowStar").innerHTML = topDays > 0 ?
+    '⭐ Star Student: <strong>' + top.name + '</strong> — ' + topDays + ' days' : '';
+
+  document.getElementById("eowPerfect").innerHTML = perfectStudents.length ?
+    '<div style="background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.2);border-radius:8px;padding:10px;font-size:12px;color:var(--green);font-family:DM Mono,monospace">💯 Perfect Week: ' + perfectStudents.join(", ") + '</div>' : '';
+
+  document.getElementById("eowModal").style.display = "flex";
+  document.body.style.overflow = "hidden";
+}
+
+function closeEow() {
+  document.getElementById("eowModal").style.display = "none";
+  document.body.style.overflow = "";
+}
+
+// ═══════════════════════════════════════════════════════════════
+// FEATURE: Monthly Overview
+// ═══════════════════════════════════════════════════════════════
+function renderMonthly() {
+  var el = document.getElementById("monthlyContent");
+  if (!el) return;
+  if (!students.length) { el.innerHTML = '<div class="empty"><div class="empty-title">No data yet</div></div>'; return; }
+  var months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+  // Only show weeks with at least 1 attendance record
+  var activeWeeks = [];
+  for (var w = 0; w >= -11; w--) {
+    var totalAtt = 0;
+    students.forEach(function(s) { totalAtt += Object.keys(filterAttByWeek(s.att, w, "week")).length; });
+    if (totalAtt > 0) activeWeeks.push(w);
+  }
+
+  if (!activeWeeks.length) {
+    el.innerHTML = '<div class="empty"><div class="empty-title">No attendance recorded yet</div><div class="empty-sub">Data will appear once classes begin</div></div>';
+    return;
+  }
+
+  var html = '<div style="font-size:13px;font-weight:700;margin-bottom:12px;color:var(--text2);letter-spacing:0.5px">ACTIVE WEEKS — CLASS AVERAGE</div>';
+  html += '<div class="card" style="margin-bottom:20px">';
+  activeWeeks.forEach(function(w) {
+    var r = getClassWeekRange(w);
+    var startD = new Date(r.start + "T00:00:00");
+    var label = w===0 ? "This Week" : (w===-1 ? "Last Week" : startD.getDate()+" "+months[startD.getMonth()]);
+    var totalAtt = 0;
+    students.forEach(function(s) { totalAtt += Object.keys(filterAttByWeek(s.att, w, "week")).length; });
+    var avgPct = students.length ? Math.round((totalAtt / (students.length * 4)) * 100) : 0;
+    var color = avgPct >= 80 ? "var(--green)" : avgPct >= 50 ? "var(--orange)" : "var(--red)";
+    html += '<div class="month-week-row">';
+    html += '<div style="font-size:12px;font-weight:600;color:var(--text)">' + label + '</div>';
+    html += '<div class="month-bar"><div class="month-bar-fill" style="width:' + avgPct + '%;background:' + color + '"></div></div>';
+    html += '<div style="font-size:14px;font-weight:800;color:' + color + ';text-align:right">' + avgPct + '%</div>';
+    html += '<div style="font-size:11px;color:var(--text3);text-align:right">' + totalAtt + ' days</div>';
+    html += '</div>';
+  });
+  html += '</div>';
+
+  var cols = 'grid-template-columns:1fr repeat(' + activeWeeks.length + ',60px)';
+  html += '<div style="font-size:13px;font-weight:700;margin-bottom:12px;color:var(--text2);letter-spacing:0.5px">STUDENT BREAKDOWN</div>';
+  html += '<div class="card">';
+  html += '<div style="display:grid;' + cols + ';padding:10px 20px;font-size:10px;color:var(--text3);letter-spacing:1px;text-transform:uppercase;border-bottom:1px solid var(--border)"><div>Student</div>';
+  activeWeeks.forEach(function(w) {
+    var wr = getClassWeekRange(w);
+    var wd = new Date(wr.start + "T00:00:00");
+    html += '<div style="text-align:center">' + (w===0?"This":(w===-1?"Last":wd.getDate()+"/"+(wd.getMonth()+1))) + '</div>';
+  });
+  html += '</div>';
+  students.forEach(function(s) {
+    var sid = s.id;
+    html += '<div class="attend-row" style="display:grid;' + cols + ';cursor:pointer" onclick="openProfile(this.dataset.id)" data-id="' + sid + '">';
+    html += '<div style="font-weight:600">' + s.name + ' <span style="font-size:10px;color:var(--text3)">↗</span></div>';
+    activeWeeks.forEach(function(w) {
+      var days = Object.keys(filterAttByWeek(s.att, w, "week")).length;
+      var pct = Math.round((days / 4) * 100);
+      var col = pct===100 ? "var(--green)" : pct>=50 ? "var(--orange)" : "var(--red)";
+      html += '<div style="text-align:center;font-weight:700;color:' + (days>0?col:"var(--text3)") + '">' + (days>0?days+"/4":"—") + '</div>';
+    });
+    html += '</div>';
+  });
+  html += '</div>';
+  el.innerHTML = html;
+}
+
+
+// ── Edit Student ──────────────────────────────────────────────
+function openEdit(arg) {
+  var studentId = (typeof arg === "string") ? arg : arg.dataset.id;
+  var s = students.find(function(x) { return x.id === studentId; });
+  if (!s) return;
+  document.getElementById("editStudentId").value = s.id;
+  document.getElementById("editName").value = s.name;
+  document.getElementById("editDest").value = s.destination || "";
+  document.getElementById("editMsg").innerHTML = "";
+  document.getElementById("editModal").style.display = "flex";
+  document.body.style.overflow = "hidden";
+}
+
+function closeEdit() {
+  document.getElementById("editModal").style.display = "none";
+  document.body.style.overflow = "";
+}
+
+async function saveEdit() {
+  var id = document.getElementById("editStudentId").value;
+  var name = document.getElementById("editName").value.trim();
+  var dest = document.getElementById("editDest").value.trim();
+  var msg = document.getElementById("editMsg");
+  if (!name) { msg.innerHTML = '<div class="alert alert-err">Name cannot be empty</div>'; return; }
+  if (!dest) { msg.innerHTML = '<div class="alert alert-err">Lightning address cannot be empty</div>'; return; }
+  msg.innerHTML = '<div class="alert alert-info">Saving...</div>';
+  var result = await sb("PATCH","students",{ name: name, destination: dest },"?id=eq." + id);
+  if (result !== null && result !== undefined) {
+    msg.innerHTML = '<div class="alert alert-ok">✓ Saved!</div>';
+    await loadStudents();
+    renderRoster();
+    setTimeout(function() { closeEdit(); }, 800);
+  } else {
+    msg.innerHTML = '<div class="alert alert-err">Failed to save. Try again.</div>';
+  }
+}
+
+
+</script>
+</body>
+</html>
