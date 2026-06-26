@@ -127,7 +127,7 @@ app.post("/pay", async (req, res) => {
   }
 
   // Default memo if none provided
-  const paymentMemo = memo || "Bitcoin Ekasi ⚡ Mossel Bay";
+  const paymentMemo = memo || "Bitcoin Ekasi - Mossel Bay";
 
   console.log(`Pay request: destination=${destination.slice(0,30)}... amount=${amount} memo="${paymentMemo}"`);
 
