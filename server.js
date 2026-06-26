@@ -47,7 +47,7 @@ function decodeLnurl(lnurl) {
   const str = lnurl.toLowerCase().replace('lightning:', '').trim();
   const sep = str.lastIndexOf('1');
   if (sep < 1) throw new Error('Invalid LNURL: no separator found');
-  const dataChars = str.slice(sep + 1, -6); // strip 6-char checksum
+  const dataChars = str.slice(sep + 1, -6);
   const data = [];
   for (const c of dataChars) {
     const v = CHARSET.indexOf(c);
@@ -121,12 +121,15 @@ app.post("/test", async (req, res) => {
 
 // ── Blink pay ──
 app.post("/pay", async (req, res) => {
-  const { apiKey, destination, amount } = req.body;
+  const { apiKey, destination, amount, memo } = req.body;
   if (!apiKey || !destination || !amount) {
     return res.status(400).json({ error: "Missing fields" });
   }
 
-  console.log(`Pay request: destination=${destination.slice(0,30)}... amount=${amount}`);
+  // Default memo if none provided
+  const paymentMemo = memo || "Bitcoin Ekasi ⚡ Mossel Bay";
+
+  console.log(`Pay request: destination=${destination.slice(0,30)}... amount=${amount} memo="${paymentMemo}"`);
 
   try {
     // Get BTC wallet ID
@@ -154,7 +157,14 @@ app.post("/pay", async (req, res) => {
           query: `mutation LnAddressPaymentSend($input: LnAddressPaymentSendInput!) {
             lnAddressPaymentSend(input: $input) { status errors { message code } }
           }`,
-          variables: { input: { walletId: btcWallet.id, lnAddress: dest, amount: parseInt(amount) } }
+          variables: {
+            input: {
+              walletId: btcWallet.id,
+              lnAddress: dest,
+              amount: parseInt(amount),
+              memo: paymentMemo
+            }
+          }
         })
       });
       if (data.errors?.length) return res.status(400).json({ error: data.errors[0].message });
@@ -192,8 +202,9 @@ app.post("/pay", async (req, res) => {
         });
       }
 
-      // Step 3: fetch invoice from LNURL callback
-      const invoiceUrl = `${callback}${callback.includes("?") ? "&" : "?"}amount=${amountMsat}`;
+      // Step 3: fetch invoice from LNURL callback — include memo as comment
+      const encodedMemo = encodeURIComponent(paymentMemo);
+      const invoiceUrl = `${callback}${callback.includes("?") ? "&" : "?"}amount=${amountMsat}&comment=${encodedMemo}`;
       const invoiceRes = await safeFetch(invoiceUrl);
       if (invoiceRes.data.status === "ERROR") {
         return res.status(400).json({ error: "Invoice error: " + invoiceRes.data.reason });
@@ -204,7 +215,7 @@ app.post("/pay", async (req, res) => {
       }
       console.log("Got invoice, paying via Blink...");
 
-      // Step 4: pay the invoice via Blink
+      // Step 4: pay the invoice via Blink — include memo
       const { data: payData } = await safeFetch(BLINK_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-API-KEY": apiKey },
@@ -212,7 +223,13 @@ app.post("/pay", async (req, res) => {
           query: `mutation LnInvoicePaymentSend($input: LnInvoicePaymentInput!) {
             lnInvoicePaymentSend(input: $input) { status errors { message code } }
           }`,
-          variables: { input: { walletId: btcWallet.id, paymentRequest } }
+          variables: {
+            input: {
+              walletId: btcWallet.id,
+              paymentRequest,
+              memo: paymentMemo
+            }
+          }
         })
       });
       if (payData.errors?.length) return res.status(400).json({ error: payData.errors[0].message });
