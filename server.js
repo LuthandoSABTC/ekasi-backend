@@ -161,19 +161,19 @@ app.post("/pay", async (req, res) => {
             input: {
               walletId: btcWallet.id,
               lnAddress: dest,
-              amount: parseInt(amount),
-              memo: paymentMemo
+              amount: parseInt(amount)
             }
           }
         })
       });
-      if (data.errors?.length) return res.status(400).json({ error: data.errors[0].message });
+      console.log("Blink LnAddress response:", JSON.stringify(data).slice(0, 500));
+      if (data.errors?.length) return res.status(400).json({ error: data.errors.map(e => e.message).join(", ") });
       const result = data?.data?.lnAddressPaymentSend;
-      if (result?.errors?.length) return res.status(400).json({ error: result.errors[0].message });
+      if (result?.errors?.length) return res.status(400).json({ error: result.errors.map(e => e.message + (e.code ? " (" + e.code + ")" : "")).join(", ") });
       if (["SUCCESS", "ALREADY_PAID", "PENDING"].includes(result?.status)) {
         return res.json({ success: true, status: result.status });
       }
-      return res.status(400).json({ error: "Payment status: " + result?.status });
+      return res.status(400).json({ error: "Payment status: " + result?.status + " — full response: " + JSON.stringify(result) });
     }
 
     // ── LNURL / Bolt Card ─────────────────────────────────────────────────
