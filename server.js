@@ -62,9 +62,13 @@ function payFailEmail(recipientName, recipientType, amount, errorMsg) {
 }
 
 // ── Supabase config ──
-const SUPABASE_URL = "https://bnteowvyioptlvohyert.supabase.co";
-const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJudGVvd3Z5aW9wdGx2b2h5ZXJ0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAwNTg2NTUsImV4cCI6MjA5NTYzNDY1NX0._-PZgmwe7CGi9aDeoOh_LsauaRru6LGgxxVZj9pv0MY";
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_KEY = process.env.SUPABASE_KEY;
 
+if (!SUPABASE_URL || !SUPABASE_KEY) {
+  console.error("Missing SUPABASE_URL or SUPABASE_KEY environment variables — backend cannot start.");
+  process.exit(1);
+}
 async function supabase(method, table, body = null, params = '') {
   const url = `${SUPABASE_URL}/rest/v1/${table}${params}`;
   const headers = {
