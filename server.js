@@ -36,6 +36,26 @@ async function sendAlert(subject, body) {
     console.error("Alert failed:", e.message);
   }
 }
+
+// ── Send WhatsApp payment notification via CallMeBot ─────────
+async function sendWhatsAppPayment(whatsappNumber, apikey, staffName, amount) {
+  if (!whatsappNumber || !apikey) {
+    console.log("No CallMeBot credentials for", staffName, "— skipping WhatsApp notification");
+    return;
+  }
+  const cleanNumber = whatsappNumber.replace(/[\s+]/g, "");
+  try {
+    const message = `⚡ Hi ${staffName}, you've received ${amount.toLocaleString()} sats from Bitcoin Ekasi!`;
+    const url = `https://api.callmebot.com/whatsapp.php?phone=${cleanNumber}&text=${encodeURIComponent(message)}&apikey=${apikey}`;
+    const res = await fetch(url);
+    const text = await res.text();
+    if (!res.ok) console.error("CallMeBot error:", text.slice(0, 200));
+    else console.log("WhatsApp sent to", staffName, "-", text.slice(0, 100));
+  } catch (e) {
+    console.error("WhatsApp send failed:", e.message);
+  }
+}
+
 function payFailEmail(recipientName, recipientType, amount, errorMsg) {
   const now = new Date().toLocaleString("en-ZA", { timeZone: "Africa/Johannesburg" });
   const subject = "Bitcoin Ekasi - Payment Failed: " + recipientName;
@@ -177,7 +197,7 @@ app.post("/test", async (req, res) => {
 
 // ── Blink pay ──
 app.post("/pay", async (req, res) => {
-  const { apiKey, destination, amount, memo } = req.body;
+  const { apiKey, destination, amount, memo, staffName, whatsappNumber, callmebotApikey} = req.body;
   if (!apiKey || !destination || !amount) {
     return res.status(400).json({ error: "Missing fields" });
   }
@@ -227,8 +247,11 @@ app.post("/pay", async (req, res) => {
       const result = data?.data?.lnAddressPaymentSend;
       if (result?.errors?.length) return res.status(400).json({ error: result.errors.map(e => e.message + (e.code ? " (" + e.code + ")" : "")).join(", ") });
       if (["SUCCESS", "ALREADY_PAID", "PENDING"].includes(result?.status)) {
-        return res.json({ success: true, status: result.status });
-      }
+        if (whatsappNumber && callmebotApikey) {
+    sendWhatsAppPayment(whatsappNumber, callmebotApikey, staffName || "Staff", parseInt(amount)).catch(() => {});
+  }
+      return res.json({ success: true, status: result.status }); {
+        }
       const errMsg = "Payment status: " + result?.status;
       await payFailEmail(destination, "Lightning Address", parseInt(amount), errMsg).catch(() => {});
       return res.status(400).json({ error: errMsg });
@@ -294,6 +317,9 @@ app.post("/pay", async (req, res) => {
       const payResult = payData?.data?.lnInvoicePaymentSend;
       if (payResult?.errors?.length) return res.status(400).json({ error: payResult.errors[0].message });
       if (["SUCCESS", "ALREADY_PAID", "PENDING"].includes(payResult?.status)) {
+        if (whatsappNumber && callmebotApikey) {
+    sendWhatsAppPayment(whatsappNumber, callmebotApikey, staffName || "Staff", parseInt(amount)).catch(() => {});
+  }
         return res.json({ success: true, status: payResult.status });
       }
       const boltErrMsg = "Payment failed: " + payResult?.status;
