@@ -22,12 +22,11 @@ async function sendAlert(subject, body) {
         "Authorization": "Bearer " + RESEND_API_KEY,
         "Content-Type": "application/json"
       },
-    body: JSON.stringify({
-  from: ALERT_FROM,
-  to: ALERT_TO,
-  subject: subject,
-  html: body
-})
+      body: JSON.stringify({
+        from: ALERT_FROM,
+        to: ALERT_TO,
+        subject: subject,
+        html: body
       })
     });
     const data = await res.json();
@@ -37,7 +36,6 @@ async function sendAlert(subject, body) {
     console.error("Alert failed:", e.message);
   }
 }
-
 function payFailEmail(recipientName, recipientType, amount, errorMsg) {
   const now = new Date().toLocaleString("en-ZA", { timeZone: "Africa/Johannesburg" });
   const subject = "Bitcoin Ekasi - Payment Failed: " + recipientName;
