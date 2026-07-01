@@ -250,8 +250,8 @@ app.post("/pay", async (req, res) => {
         if (whatsappNumber && callmebotApikey) {
     sendWhatsAppPayment(whatsappNumber, callmebotApikey, staffName || "Staff", parseInt(amount)).catch(() => {});
   }
-      return res.json({ success: true, status: result.status }); {
-        }
+      return res.json({ success: true, status: result.status });
+      }
       const errMsg = "Payment status: " + result?.status;
       await payFailEmail(destination, "Lightning Address", parseInt(amount), errMsg).catch(() => {});
       return res.status(400).json({ error: errMsg });
