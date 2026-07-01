@@ -22,11 +22,12 @@ async function sendAlert(subject, body) {
         "Authorization": "Bearer " + RESEND_API_KEY,
         "Content-Type": "application/json"
       },
-      body: JSON.stringify({
-        from: ALERT_FROM,
-        to: [ALERT_TO],
-        subject: subject,
-        html: body
+    body: JSON.stringify({
+  from: ALERT_FROM,
+  to: ALERT_TO,
+  subject: subject,
+  html: body
+})
       })
     });
     const data = await res.json();
