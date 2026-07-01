@@ -1,12 +1,65 @@
 const express = require("express");
 const cors = require("cors");
 const fetch = require("node-fetch");
+const cron = require("node-cron");
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
 const BLINK_URL = "https://api.blink.sv/graphql";
+const RESEND_API_KEY = process.env.RESEND_API_KEY;
+const ALERT_TO = ["luthando@bitcoinekasi.com", "sassa@bitcoinekasi.com"];
+const ALERT_FROM = "onboarding@resend.dev";
+
+// ── Send email alert via Resend ──────────────────────────────
+async function sendAlert(subject, body) {
+  if (!RESEND_API_KEY) { console.log("No RESEND_API_KEY — skipping alert"); return; }
+  try {
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        "Authorization": "Bearer " + RESEND_API_KEY,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        from: ALERT_FROM,
+        to: [ALERT_TO],
+        subject: subject,
+        html: body
+      })
+    });
+    const data = await res.json();
+    if (!res.ok) console.error("Resend error:", JSON.stringify(data));
+    else console.log("Alert sent:", subject);
+  } catch(e) {
+    console.error("Alert failed:", e.message);
+  }
+}
+
+function payFailEmail(recipientName, recipientType, amount, errorMsg) {
+  const now = new Date().toLocaleString("en-ZA", { timeZone: "Africa/Johannesburg" });
+  const subject = "Bitcoin Ekasi - Payment Failed: " + recipientName;
+  const html = [
+    '<div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;background:#0A0A0F;color:#F0F0F8;border-radius:12px;overflow:hidden">',
+    '<div style="background:#F7931A;padding:20px 24px;text-align:center">',
+    '<div style="font-size:32px;margin-bottom:8px">&#9888;&#65039;</div>',
+    '<div style="font-size:20px;font-weight:800;color:#000">Payment Failed</div>',
+    '<div style="font-size:12px;color:rgba(0,0,0,0.7);margin-top:4px">Bitcoin Ekasi Attendance Tracker</div>',
+    '</div>',
+    '<div style="padding:28px 24px">',
+    '<div style="background:#16161F;border-radius:10px;padding:18px;margin-bottom:20px">',
+    '<div style="font-size:18px;font-weight:700;margin-bottom:4px">' + recipientName + '</div>',
+    '<div style="font-size:12px;color:#9090A8;margin-bottom:14px">' + recipientType + '</div>',
+    '<div style="font-size:26px;font-weight:800;color:#F7931A;margin-bottom:10px">&#9889;' + amount.toLocaleString() + ' sats</div>',
+    '<div style="font-size:11px;color:#F87171;background:rgba(244,63,94,0.1);border:1px solid rgba(244,63,94,0.2);border-radius:6px;padding:8px 12px;word-break:break-word">' + errorMsg + '</div>',
+    '</div>',
+    '<div style="font-size:12px;color:#55556A;margin-bottom:20px">Time: ' + now + ' SAST</div>',
+    '<a href="https://luthandosabtc.github.io/bitcoinekasi/" style="display:block;background:#F7931A;color:#000;text-align:center;padding:13px;border-radius:8px;font-weight:700;text-decoration:none;font-size:14px">Open App to Retry</a>',
+    '</div></div>'
+  ].join("");
+  return sendAlert(subject, html);
+}
 
 // ── Supabase config ──
 const SUPABASE_URL = "https://bnteowvyioptlvohyert.supabase.co";
@@ -173,7 +226,9 @@ app.post("/pay", async (req, res) => {
       if (["SUCCESS", "ALREADY_PAID", "PENDING"].includes(result?.status)) {
         return res.json({ success: true, status: result.status });
       }
-      return res.status(400).json({ error: "Payment status: " + result?.status + " — full response: " + JSON.stringify(result) });
+      const errMsg = "Payment status: " + result?.status;
+      await payFailEmail(destination, "Lightning Address", parseInt(amount), errMsg).catch(() => {});
+      return res.status(400).json({ error: errMsg });
     }
 
     // ── LNURL / Bolt Card ─────────────────────────────────────────────────
@@ -238,15 +293,155 @@ app.post("/pay", async (req, res) => {
       if (["SUCCESS", "ALREADY_PAID", "PENDING"].includes(payResult?.status)) {
         return res.json({ success: true, status: payResult.status });
       }
-      return res.status(400).json({ error: "Payment failed: " + payResult?.status });
+      const boltErrMsg = "Payment failed: " + payResult?.status;
+      await payFailEmail(destination, "Bolt Card / LNURL", parseInt(amount), boltErrMsg).catch(() => {});
+      return res.status(400).json({ error: boltErrMsg });
     }
 
     return res.status(400).json({ error: "Unknown destination format. Use Lightning Address (name@domain) or LNURL." });
 
   } catch (e) {
     console.error("Pay error:", e.message);
+    await payFailEmail(destination, "Lightning Payment", parseInt(amount) || 0, e.message).catch(() => {});
     res.status(500).json({ error: e.message });
   }
+});
+
+// ── Daily Summary Email (7pm SAST = 5pm UTC) ─────────────────
+async function sendDailySummary() {
+  console.log("Sending daily summary email...");
+  try {
+    // Fetch all data from Supabase
+    const studentsRaw = await supabase("GET", "students", null, "?order=created_at.asc");
+    const attendanceRaw = await supabase("GET", "attendance", null, "?order=date.desc");
+    const staffRaw = await supabase("GET", "staff", null, "");
+    const staffAttRaw = await supabase("GET", "staff_attendance", null, "");
+    const excusesRaw = await supabase("GET", "excuses", null, "?order=date.desc");
+
+    const today = new Date().toLocaleDateString("en-ZA", { timeZone: "Africa/Johannesburg" }).split("/").reverse().join("-");
+    const todayFormatted = new Date().toLocaleDateString("en-ZA", { timeZone: "Africa/Johannesburg", weekday: "long", year: "numeric", month: "long", day: "numeric" });
+
+    // Today's attendance
+    const todayAtt = attendanceRaw.filter(a => a.date === today);
+    const activeStudents = studentsRaw.filter(s => !s.status || s.status === "active");
+    const presentIds = new Set(todayAtt.map(a => a.student_id));
+    const presentStudents = activeStudents.filter(s => presentIds.has(s.id));
+    const absentStudents = activeStudents.filter(s => !presentIds.has(s.id));
+
+    // Today's excuses
+    const todayExcuses = excusesRaw.filter(e => e.date === today);
+    const excusedIds = new Set(todayExcuses.map(e => e.student_id));
+
+    // Staff hours today
+    const todayStaffAtt = staffAttRaw.filter(a => a.date === today);
+
+    // Sats owed
+    const SATS = 500;
+    const STAFF_SATS_PER_HOUR = 1300;
+    const SHACK_SATS = 28000;
+
+    let studentOwed = 0;
+    activeStudents.forEach(s => {
+      const attDays = attendanceRaw.filter(a => a.student_id === s.id).length;
+      const earned = attDays * SATS + (s.bonus || 0);
+      studentOwed += Math.max(0, earned - (s.paid || 0));
+    });
+
+    let staffOwed = 0;
+    staffRaw.forEach(s => {
+      const hours = staffAttRaw.filter(a => a.staff_id === s.id).reduce((sum, a) => sum + parseFloat(a.hours || 0), 0);
+      const earned = Math.round(hours * STAFF_SATS_PER_HOUR);
+      staffOwed += Math.max(0, earned - (s.paid || 0));
+    });
+
+    const attRate = activeStudents.length > 0 ? Math.round((presentStudents.length / activeStudents.length) * 100) : 0;
+
+    // Build HTML email
+    const presentRows = presentStudents.map(s =>
+      '<tr><td style="padding:8px 12px;border-bottom:1px solid #1C1C28;color:#F7931A;font-weight:600">' + s.name + '</td><td style="padding:8px 12px;border-bottom:1px solid #1C1C28;text-align:right;color:#10B981">&#10003; Present</td></tr>'
+    ).join("");
+
+    const absentRows = absentStudents.map(s => {
+      const excuse = todayExcuses.find(e => e.student_id === s.id);
+      const status = excuse ? '<span style="color:#60A5FA">' + excuse.reason.split(" ")[0] + " " + excuse.reason.split(" ")[1] + "</span>" : '<span style="color:#F87171">&#10007; Absent</span>';
+      return '<tr><td style="padding:8px 12px;border-bottom:1px solid #1C1C28;color:#F7931A;font-weight:600">' + s.name + '</td><td style="padding:8px 12px;border-bottom:1px solid #1C1C28;text-align:right">' + status + '</td></tr>';
+    }).join("");
+
+    const staffRows = todayStaffAtt.length > 0 ? todayStaffAtt.map(a => {
+      const staff = staffRaw.find(s => s.id === a.staff_id);
+      return '<tr><td style="padding:8px 12px;border-bottom:1px solid #1C1C28;color:#6366F1;font-weight:600">' + (staff ? staff.name : "Unknown") + '</td><td style="padding:8px 12px;border-bottom:1px solid #1C1C28;text-align:right;color:#F0F0F8">' + a.hours + ' hrs</td></tr>';
+    }).join("") : '<tr><td colspan="2" style="padding:12px;color:#55556A;text-align:center">No hours logged today</td></tr>';
+
+    const html = [
+      '<div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;background:#0A0A0F;color:#F0F0F8;border-radius:16px;overflow:hidden">',
+
+      // Header
+      '<div style="background:linear-gradient(135deg,#F7931A,#E87D0D);padding:28px 24px;text-align:center">',
+      '<div style="font-size:36px;margin-bottom:8px">&#9889;</div>',
+      '<div style="font-size:22px;font-weight:800;color:#000">Bitcoin Ekasi</div>',
+      '<div style="font-size:14px;color:rgba(0,0,0,0.7);margin-top:4px">Daily Summary — ' + todayFormatted + '</div>',
+      '</div>',
+
+      // Stats strip
+      '<div style="display:flex;border-bottom:1px solid #1C1C28">',
+      '<div style="flex:1;padding:18px;text-align:center;border-right:1px solid #1C1C28">',
+      '<div style="font-size:28px;font-weight:800;color:#F7931A;font-family:monospace">' + presentStudents.length + '/' + activeStudents.length + '</div>',
+      '<div style="font-size:10px;color:#55556A;text-transform:uppercase;letter-spacing:1px;margin-top:4px">Present Today</div>',
+      '</div>',
+      '<div style="flex:1;padding:18px;text-align:center;border-right:1px solid #1C1C28">',
+      '<div style="font-size:28px;font-weight:800;color:#F7931A;font-family:monospace">' + attRate + '%</div>',
+      '<div style="font-size:10px;color:#55556A;text-transform:uppercase;letter-spacing:1px;margin-top:4px">Attendance Rate</div>',
+      '</div>',
+      '<div style="flex:1;padding:18px;text-align:center">',
+      '<div style="font-size:28px;font-weight:800;color:#F7931A;font-family:monospace">&#9889;' + (studentOwed + staffOwed).toLocaleString() + '</div>',
+      '<div style="font-size:10px;color:#55556A;text-transform:uppercase;letter-spacing:1px;margin-top:4px">Sats Owed</div>',
+      '</div>',
+      '</div>',
+
+      // Attendance table
+      '<div style="padding:20px 24px">',
+      '<div style="font-size:11px;font-weight:700;color:#9090A8;letter-spacing:2px;text-transform:uppercase;margin-bottom:10px">Today&#39;s Attendance</div>',
+      '<table style="width:100%;border-collapse:collapse;background:#111118;border-radius:10px;overflow:hidden">',
+      presentRows,
+      absentRows,
+      '</table>',
+      '</div>',
+
+      // Staff table
+      '<div style="padding:0 24px 20px">',
+      '<div style="font-size:11px;font-weight:700;color:#9090A8;letter-spacing:2px;text-transform:uppercase;margin-bottom:10px">Staff Hours Today</div>',
+      '<table style="width:100%;border-collapse:collapse;background:#111118;border-radius:10px;overflow:hidden">',
+      staffRows,
+      '</table>',
+      '</div>',
+
+      // Footer
+      '<div style="padding:16px 24px;border-top:1px solid #1C1C28;text-align:center">',
+      '<a href="https://luthandosabtc.github.io/bitcoinekasi/" style="display:inline-block;background:#F7931A;color:#000;padding:12px 28px;border-radius:8px;font-weight:700;text-decoration:none;font-size:13px">Open Bitcoin Ekasi App</a>',
+      '<div style="font-size:11px;color:#55556A;margin-top:14px">Bitcoin Ekasi · Mossel Bay · Powered by Lightning &#9889;</div>',
+      '</div>',
+
+      '</div>'
+    ].join("");
+
+    await sendAlert("Bitcoin Ekasi Daily Summary — " + todayFormatted, html);
+    console.log("Daily summary sent successfully");
+  } catch(e) {
+    console.error("Daily summary failed:", e.message);
+    await sendAlert("Bitcoin Ekasi — Daily Summary Failed", "<p>Could not generate daily summary: " + e.message + "</p>");
+  }
+}
+
+// Schedule: every day at 5pm UTC (7pm SAST)
+cron.schedule("0 17 * * *", () => {
+  console.log("Running daily summary cron job...");
+  sendDailySummary();
+}, { timezone: "UTC" });
+
+// Test endpoint to trigger summary manually
+app.get("/send-summary", async (req, res) => {
+  await sendDailySummary();
+  res.json({ success: true, message: "Daily summary sent" });
 });
 
 const PORT = process.env.PORT || 3001;
