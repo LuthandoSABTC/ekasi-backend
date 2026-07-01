@@ -9,7 +9,7 @@ app.use(express.json());
 
 const BLINK_URL = "https://api.blink.sv/graphql";
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
-const ALERT_TO = ["luthando@bitcoinekasi.com", "sassa@bitcoinekasi.com"];
+const ALERT_TO = ["luthando@bitcoinekasi.com"];
 const ALERT_FROM = "onboarding@resend.dev";
 
 // ── Send email alert via Resend ──────────────────────────────
