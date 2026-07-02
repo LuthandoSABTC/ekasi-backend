@@ -11,6 +11,7 @@ const BLINK_URL = "https://api.blink.sv/graphql";
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const ALERT_TO = ["luthando@bitcoinekasi.com"];
 const ALERT_FROM = "onboarding@resend.dev";
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 
 // ── Send email alert via Resend ──────────────────────────────
 async function sendAlert(subject, body) {
@@ -53,6 +54,28 @@ async function sendWhatsAppPayment(whatsappNumber, apikey, staffName, amount) {
     else console.log("WhatsApp sent to", staffName, "-", text.slice(0, 100));
   } catch (e) {
     console.error("WhatsApp send failed:", e.message);
+  }
+}
+
+// ── Send Telegram payment notification ────────────────────────
+async function sendTelegramPayment(chatId, staffName, amount) {
+  if (!chatId || !TELEGRAM_BOT_TOKEN) {
+    console.log("No Telegram credentials for", staffName, "— skipping Telegram notification");
+    return;
+  }
+  try {
+    const message = `⚡ Hi ${staffName}, you've received ${amount.toLocaleString()} sats from Bitcoin Ekasi!`;
+    const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, text: message })
+    });
+    const data = await res.json();
+    if (!data.ok) console.error("Telegram error:", JSON.stringify(data));
+    else console.log("Telegram sent to", staffName);
+  } catch (e) {
+    console.error("Telegram send failed:", e.message);
   }
 }
 
@@ -197,7 +220,7 @@ app.post("/test", async (req, res) => {
 
 // ── Blink pay ──
 app.post("/pay", async (req, res) => {
-  const { apiKey, destination, amount, memo, staffName, whatsappNumber, callmebotApikey} = req.body;
+  const { apiKey, destination, amount, memo, staffName, whatsappNumber, callmebotApikey, telegramChatId } = req.body;
   if (!apiKey || !destination || !amount) {
     return res.status(400).json({ error: "Missing fields" });
   }
@@ -248,9 +271,12 @@ app.post("/pay", async (req, res) => {
       if (result?.errors?.length) return res.status(400).json({ error: result.errors.map(e => e.message + (e.code ? " (" + e.code + ")" : "")).join(", ") });
       if (["SUCCESS", "ALREADY_PAID", "PENDING"].includes(result?.status)) {
         if (whatsappNumber && callmebotApikey) {
-    sendWhatsAppPayment(whatsappNumber, callmebotApikey, staffName || "Staff", parseInt(amount)).catch(() => {});
-  }
-      return res.json({ success: true, status: result.status });
+          sendWhatsAppPayment(whatsappNumber, callmebotApikey, staffName || "Staff", parseInt(amount)).catch(() => {});
+        }
+        if (telegramChatId) {
+          sendTelegramPayment(telegramChatId, staffName || "Staff", parseInt(amount)).catch(() => {});
+        }
+        return res.json({ success: true, status: result.status });
       }
       const errMsg = "Payment status: " + result?.status;
       await payFailEmail(destination, "Lightning Address", parseInt(amount), errMsg).catch(() => {});
@@ -318,8 +344,11 @@ app.post("/pay", async (req, res) => {
       if (payResult?.errors?.length) return res.status(400).json({ error: payResult.errors[0].message });
       if (["SUCCESS", "ALREADY_PAID", "PENDING"].includes(payResult?.status)) {
         if (whatsappNumber && callmebotApikey) {
-    sendWhatsAppPayment(whatsappNumber, callmebotApikey, staffName || "Staff", parseInt(amount)).catch(() => {});
-  }
+          sendWhatsAppPayment(whatsappNumber, callmebotApikey, staffName || "Staff", parseInt(amount)).catch(() => {});
+        }
+        if (telegramChatId) {
+          sendTelegramPayment(telegramChatId, staffName || "Staff", parseInt(amount)).catch(() => {});
+        }
         return res.json({ success: true, status: payResult.status });
       }
       const boltErrMsg = "Payment failed: " + payResult?.status;
