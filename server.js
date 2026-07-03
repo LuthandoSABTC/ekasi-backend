@@ -504,3 +504,145 @@ app.get("/send-summary", async (req, res) => {
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => console.log(`Ekasi backend running on port ${PORT}`));
+
+// ── Weekly Summary Email (Fridays, 7pm SAST = 5pm UTC) ────────
+async function sendWeeklySummary() {
+  console.log("Sending weekly summary email...");
+  try {
+    const studentsRaw = await supabase("GET", "students", null, "?order=created_at.asc");
+    const attendanceRaw = await supabase("GET", "attendance", null, "?order=date.desc");
+    const staffRaw = await supabase("GET", "staff", null, "");
+    const staffAttRaw = await supabase("GET", "staff_attendance", null, "");
+
+    const todayFmt = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Johannesburg", year: "numeric", month: "2-digit", day: "2-digit" });
+    const today = todayFmt.format(new Date());
+    const todayDate = new Date(today + "T00:00:00Z");
+    const dow = todayDate.getUTCDay();
+    const diffToTue = (dow === 0) ? -5 : (dow === 1) ? -6 : -(dow - 2);
+    const tue = new Date(todayDate);
+    tue.setUTCDate(tue.getUTCDate() + diffToTue);
+    const weekDates = [];
+    for (let i = 0; i < 4; i++) {
+      const d = new Date(tue);
+      d.setUTCDate(d.getUTCDate() + i);
+      weekDates.push(d.toISOString().split("T")[0]);
+    }
+    const weekLabelStart = new Date(weekDates[0] + "T00:00:00Z");
+    const weekLabelEnd = new Date(weekDates[3] + "T00:00:00Z");
+    const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    const weekLabel = weekLabelStart.getUTCDate() + " " + monthNames[weekLabelStart.getUTCMonth()] + " – " + weekLabelEnd.getUTCDate() + " " + monthNames[weekLabelEnd.getUTCMonth()] + " " + weekLabelEnd.getUTCFullYear();
+
+    const SATS = 500;
+    const STAFF_SATS_PER_HOUR = 1300;
+
+    const activeStudents = studentsRaw.filter(s => !s.status || s.status === "active");
+
+    let totalWeekDays = 0;
+    let totalWeekSats = 0;
+    const perfectStudents = [];
+    const studentRows = activeStudents.map(s => {
+      const weekAtt = attendanceRaw.filter(a => a.student_id === s.id && weekDates.includes(a.date));
+      const days = weekAtt.length;
+      totalWeekDays += days;
+      totalWeekSats += days * SATS;
+      if (days >= 4) perfectStudents.push(s.name);
+      return { name: s.name, days };
+    });
+    const activeCount = studentRows.filter(s => s.days > 0).length;
+    const avgDays = activeStudents.length > 0 ? (totalWeekDays / activeStudents.length).toFixed(1) : "0";
+    const weekAttRate = activeStudents.length > 0 ? Math.round((totalWeekDays / (activeStudents.length * 4)) * 100) : 0;
+
+    let staffWeekHours = 0;
+    staffRaw.forEach(s => {
+      const hrs = staffAttRaw.filter(a => a.staff_id === s.id && weekDates.includes(a.date)).reduce((sum, a) => sum + parseFloat(a.hours || 0), 0);
+      staffWeekHours += hrs;
+    });
+    const staffWeekEarned = Math.round(staffWeekHours * STAFF_SATS_PER_HOUR);
+
+    let totalOwed = 0;
+    activeStudents.forEach(s => {
+      const attDays = attendanceRaw.filter(a => a.student_id === s.id).length;
+      const earned = attDays * SATS + (s.bonus || 0);
+      totalOwed += Math.max(0, earned - (s.paid || 0));
+    });
+    staffRaw.forEach(s => {
+      const hours = staffAttRaw.filter(a => a.staff_id === s.id).reduce((sum, a) => sum + parseFloat(a.hours || 0), 0);
+      const earned = Math.round(hours * STAFF_SATS_PER_HOUR);
+      totalOwed += Math.max(0, earned - (s.paid || 0));
+    });
+
+    const perfectListHtml = perfectStudents.length > 0
+      ? perfectStudents.map(n => '<span style="display:inline-block;background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.25);border-radius:100px;padding:4px 12px;font-size:11px;font-weight:600;color:#10B981;margin:3px">&#10003; ' + n + '</span>').join("")
+      : '<span style="color:#55556A;font-size:12px">No perfect attendance this week</span>';
+
+    const html = [
+      '<div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;background:#0A0A0F;color:#F0F0F8;border-radius:16px;overflow:hidden">',
+      '<div style="background:linear-gradient(135deg,#F7931A,#E87D0D);padding:28px 24px;text-align:center">',
+      '<div style="font-size:36px;margin-bottom:8px">&#128203;</div>',
+      '<div style="font-size:22px;font-weight:800;color:#000">Bitcoin Ekasi</div>',
+      '<div style="font-size:14px;color:rgba(0,0,0,0.7);margin-top:4px">Weekly Summary — ' + weekLabel + '</div>',
+      '</div>',
+
+      '<div style="display:flex;border-bottom:1px solid #1C1C28">',
+      '<div style="flex:1;padding:18px;text-align:center;border-right:1px solid #1C1C28">',
+      '<div style="font-size:26px;font-weight:800;color:#F7931A;font-family:monospace">' + activeCount + '/' + activeStudents.length + '</div>',
+      '<div style="font-size:10px;color:#55556A;text-transform:uppercase;letter-spacing:1px;margin-top:4px">Attended This Week</div>',
+      '</div>',
+      '<div style="flex:1;padding:18px;text-align:center;border-right:1px solid #1C1C28">',
+      '<div style="font-size:26px;font-weight:800;color:#F7931A;font-family:monospace">' + weekAttRate + '%</div>',
+      '<div style="font-size:10px;color:#55556A;text-transform:uppercase;letter-spacing:1px;margin-top:4px">Attendance Rate</div>',
+      '</div>',
+      '<div style="flex:1;padding:18px;text-align:center">',
+      '<div style="font-size:26px;font-weight:800;color:#F7931A;font-family:monospace">' + avgDays + '</div>',
+      '<div style="font-size:10px;color:#55556A;text-transform:uppercase;letter-spacing:1px;margin-top:4px">Avg Days/Student</div>',
+      '</div>',
+      '</div>',
+
+      '<div style="padding:20px 24px">',
+      '<div style="font-size:11px;font-weight:700;color:#9090A8;letter-spacing:2px;text-transform:uppercase;margin-bottom:10px">&#127942; Perfect Attendance</div>',
+      '<div>', perfectListHtml, '</div>',
+      '</div>',
+
+      '<div style="padding:0 24px 20px">',
+      '<div style="font-size:11px;font-weight:700;color:#9090A8;letter-spacing:2px;text-transform:uppercase;margin-bottom:10px">This Week&#39;s Totals</div>',
+      '<table style="width:100%;border-collapse:collapse;background:#111118;border-radius:10px;overflow:hidden">',
+      '<tr><td style="padding:10px 14px;border-bottom:1px solid #1C1C28;color:#9090A8">Students Earned</td><td style="padding:10px 14px;border-bottom:1px solid #1C1C28;text-align:right;color:#F7931A;font-weight:700">&#9889;' + totalWeekSats.toLocaleString() + ' sats</td></tr>',
+      '<tr><td style="padding:10px 14px;border-bottom:1px solid #1C1C28;color:#9090A8">Staff Hours Logged</td><td style="padding:10px 14px;border-bottom:1px solid #1C1C28;text-align:right;color:#6366F1;font-weight:700">' + staffWeekHours.toFixed(1) + ' hrs</td></tr>',
+      '<tr><td style="padding:10px 14px;color:#9090A8">Staff Sats Earned</td><td style="padding:10px 14px;text-align:right;color:#6366F1;font-weight:700">&#9889;' + staffWeekEarned.toLocaleString() + ' sats</td></tr>',
+      '</table>',
+      '</div>',
+
+      '<div style="padding:0 24px 20px">',
+      '<div style="background:rgba(247,147,26,0.06);border:1px solid rgba(247,147,26,0.2);border-radius:10px;padding:14px 16px;text-align:center">',
+      '<div style="font-size:11px;color:#9090A8;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Total Owed Across Program</div>',
+      '<div style="font-size:22px;font-weight:800;color:#F7931A;font-family:monospace">&#9889;' + totalOwed.toLocaleString() + ' sats</div>',
+      '</div>',
+      '</div>',
+
+      '<div style="padding:16px 24px;border-top:1px solid #1C1C28;text-align:center">',
+      '<a href="https://luthandosabtc.github.io/bitcoinekasi/" style="display:inline-block;background:#F7931A;color:#000;padding:12px 28px;border-radius:8px;font-weight:700;text-decoration:none;font-size:13px">Open Bitcoin Ekasi App</a>',
+      '<div style="font-size:11px;color:#55556A;margin-top:14px">Bitcoin Ekasi · Mossel Bay · Powered by Lightning &#9889;</div>',
+      '</div>',
+
+      '</div>'
+    ].join("");
+
+    await sendAlert("Bitcoin Ekasi Weekly Summary — " + weekLabel, html);
+    console.log("Weekly summary sent successfully");
+  } catch(e) {
+    console.error("Weekly summary failed:", e.message);
+    await sendAlert("Bitcoin Ekasi — Weekly Summary Failed", "<p>Could not generate weekly summary: " + e.message + "</p>");
+  }
+}
+
+// Schedule: every Friday at 5pm UTC (7pm SAST) — after the daily summary
+cron.schedule("5 17 * * 5", () => {
+  console.log("Running weekly summary cron job...");
+  sendWeeklySummary();
+}, { timezone: "UTC" });
+
+// Test endpoint to trigger weekly summary manually
+app.get("/send-weekly-summary", async (req, res) => {
+  await sendWeeklySummary();
+  res.json({ success: true, message: "Weekly summary sent" });
+});
