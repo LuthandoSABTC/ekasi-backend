@@ -529,9 +529,6 @@ async function sendWeeklySummary() {
     const attendanceRaw = await supabase("GET", "attendance", null, "?order=date.desc");
     const staffRaw = await supabase("GET", "staff", null, "");
     const staffAttRaw = await supabase("GET", "staff_attendance", null, "");
-    const excusesRaw = await supabase("GET", "excuses", null, "?order=date.desc");
-    const pgStudentsRaw = await supabase("GET", "postgrad_students", null, "?status=eq.active&order=created_at.asc");
-    const pgAttendanceRaw = await supabase("GET", "postgrad_attendance", null, "");
 
     const todayFmt = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Johannesburg", year: "numeric", month: "2-digit", day: "2-digit" });
     const today = todayFmt.format(new Date());
@@ -546,6 +543,17 @@ async function sendWeeklySummary() {
       d.setUTCDate(d.getUTCDate() + i);
       weekDates.push(d.toISOString().split("T")[0]);
     }
+
+    // Last week's dates, for comparison (most-improved calculation)
+    const lastTue = new Date(tue);
+    lastTue.setUTCDate(lastTue.getUTCDate() - 7);
+    const lastWeekDates = [];
+    for (let i = 0; i < 4; i++) {
+      const d = new Date(lastTue);
+      d.setUTCDate(d.getUTCDate() + i);
+      lastWeekDates.push(d.toISOString().split("T")[0]);
+    }
+
     const weekLabelStart = new Date(weekDates[0] + "T00:00:00Z");
     const weekLabelEnd = new Date(weekDates[3] + "T00:00:00Z");
     const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
@@ -559,12 +567,21 @@ async function sendWeeklySummary() {
     let totalWeekDays = 0;
     let totalWeekSats = 0;
     const perfectStudents = [];
+    let mostImproved = null; // { name, improvement, daysThisWeek, daysLastWeek }
     const studentRows = activeStudents.map(s => {
       const weekAtt = attendanceRaw.filter(a => a.student_id === s.id && weekDates.includes(a.date));
       const days = weekAtt.length;
       totalWeekDays += days;
       totalWeekSats += days * SATS;
       if (days >= 4) perfectStudents.push(s.name);
+
+      const lastWeekAtt = attendanceRaw.filter(a => a.student_id === s.id && lastWeekDates.includes(a.date));
+      const lastWeekDays = lastWeekAtt.length;
+      const improvement = days - lastWeekDays;
+      if (improvement > 0 && (!mostImproved || improvement > mostImproved.improvement)) {
+        mostImproved = { name: s.name, improvement, daysThisWeek: days, daysLastWeek: lastWeekDays };
+      }
+
       return { name: s.name, days };
     });
     const activeCount = studentRows.filter(s => s.days > 0).length;
@@ -572,9 +589,13 @@ async function sendWeeklySummary() {
     const weekAttRate = activeStudents.length > 0 ? Math.round((totalWeekDays / (activeStudents.length * 4)) * 100) : 0;
 
     let staffWeekHours = 0;
+    let topStaff = null; // { name, hours }
     staffRaw.forEach(s => {
       const hrs = staffAttRaw.filter(a => a.staff_id === s.id && weekDates.includes(a.date)).reduce((sum, a) => sum + parseFloat(a.hours || 0), 0);
       staffWeekHours += hrs;
+      if (hrs > 0 && (!topStaff || hrs > topStaff.hours)) {
+        topStaff = { name: s.name, hours: hrs };
+      }
     });
     const staffWeekEarned = Math.round(staffWeekHours * STAFF_SATS_PER_HOUR);
 
@@ -593,6 +614,26 @@ async function sendWeeklySummary() {
     const perfectListHtml = perfectStudents.length > 0
       ? perfectStudents.map(n => '<span style="display:inline-block;background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.25);border-radius:100px;padding:4px 12px;font-size:11px;font-weight:600;color:#10B981;margin:3px">&#10003; ' + n + '</span>').join("")
       : '<span style="color:#55556A;font-size:12px">No perfect attendance this week</span>';
+
+    const shoutoutsHtml = [];
+    if (mostImproved) {
+      shoutoutsHtml.push(
+        '<div style="background:rgba(99,102,241,0.06);border:1px solid rgba(99,102,241,0.2);border-radius:10px;padding:14px 16px;margin-bottom:10px">' +
+        '<div style="font-size:11px;color:#9090A8;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">&#128200; Most Improved</div>' +
+        '<div style="font-size:15px;font-weight:700;color:#F0F0F8">' + mostImproved.name + '</div>' +
+        '<div style="font-size:12px;color:#6366F1;margin-top:2px">' + mostImproved.daysLastWeek + ' &#8594; ' + mostImproved.daysThisWeek + ' days (+' + mostImproved.improvement + ')</div>' +
+        '</div>'
+      );
+    }
+    if (topStaff) {
+      shoutoutsHtml.push(
+        '<div style="background:rgba(247,147,26,0.06);border:1px solid rgba(247,147,26,0.2);border-radius:10px;padding:14px 16px;margin-bottom:10px">' +
+        '<div style="font-size:11px;color:#9090A8;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">&#11088; Top Staff Member</div>' +
+        '<div style="font-size:15px;font-weight:700;color:#F0F0F8">' + topStaff.name + '</div>' +
+        '<div style="font-size:12px;color:#F7931A;margin-top:2px">' + topStaff.hours.toFixed(1) + ' hours logged this week</div>' +
+        '</div>'
+      );
+    }
 
     const html = [
       '<div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;background:#0A0A0F;color:#F0F0F8;border-radius:16px;overflow:hidden">',
@@ -617,6 +658,8 @@ async function sendWeeklySummary() {
       '</div>',
       '</div>',
 
+      shoutoutsHtml.length > 0 ? '<div style="padding:20px 24px 4px">' + shoutoutsHtml.join("") + '</div>' : '',
+
       '<div style="padding:20px 24px">',
       '<div style="font-size:11px;font-weight:700;color:#9090A8;letter-spacing:2px;text-transform:uppercase;margin-bottom:10px">&#127942; Perfect Attendance</div>',
       '<div>', perfectListHtml, '</div>',
@@ -627,7 +670,8 @@ async function sendWeeklySummary() {
       '<table style="width:100%;border-collapse:collapse;background:#111118;border-radius:10px;overflow:hidden">',
       '<tr><td style="padding:10px 14px;border-bottom:1px solid #1C1C28;color:#9090A8">Students Earned</td><td style="padding:10px 14px;border-bottom:1px solid #1C1C28;text-align:right;color:#F7931A;font-weight:700">&#9889;' + totalWeekSats.toLocaleString() + ' sats</td></tr>',
       '<tr><td style="padding:10px 14px;border-bottom:1px solid #1C1C28;color:#9090A8">Staff Hours Logged</td><td style="padding:10px 14px;border-bottom:1px solid #1C1C28;text-align:right;color:#6366F1;font-weight:700">' + staffWeekHours.toFixed(1) + ' hrs</td></tr>',
-      '<tr><td style="padding:10px 14px;color:#9090A8">Staff Sats Earned</td><td style="padding:10px 14px;text-align:right;color:#6366F1;font-weight:700">&#9889;' + staffWeekEarned.toLocaleString() + ' sats</td></tr>',
+      '<tr><td style="padding:10px 14px;border-bottom:1px solid #1C1C28;color:#9090A8">Staff Sats Earned</td><td style="padding:10px 14px;border-bottom:1px solid #1C1C28;text-align:right;color:#6366F1;font-weight:700">&#9889;' + staffWeekEarned.toLocaleString() + ' sats</td></tr>',
+      '<tr><td style="padding:10px 14px;color:#F0F0F8;font-weight:700">Total Sats Spent This Week</td><td style="padding:10px 14px;text-align:right;color:#10B981;font-weight:800">&#9889;' + (totalWeekSats + staffWeekEarned).toLocaleString() + ' sats</td></tr>',
       '</table>',
       '</div>',
 
