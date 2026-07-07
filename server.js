@@ -435,9 +435,6 @@ async function sendDailySummary() {
   return '<tr><td style="padding:8px 12px;border-bottom:1px solid #1C1C28;color:#C084FC;font-weight:600">' + s.name + '</td><td style="padding:8px 12px;border-bottom:1px solid #1C1C28;text-align:right;color:' + (present ? '#10B981' : '#F87171') + '">' + (present ? '&#10003; Present' : '&#10007; Absent') + '</td></tr>';
 }).join("") : '<tr><td colspan="2" style="padding:12px;color:#55556A;text-align:center">No postgrad students enrolled</td></tr>';
 
-const staffRows = todayStaffAtt.length > 0 ? todayStaffAtt.map(a => {
-    
-    
     const staffRows = todayStaffAtt.length > 0 ? todayStaffAtt.map(a => {
       const staff = staffRaw.find(s => s.id === a.staff_id);
       return '<tr><td style="padding:8px 12px;border-bottom:1px solid #1C1C28;color:#6366F1;font-weight:600">' + (staff ? staff.name : "Unknown") + '</td><td style="padding:8px 12px;border-bottom:1px solid #1C1C28;text-align:right;color:#F0F0F8">' + a.hours + ' hrs</td></tr>';
