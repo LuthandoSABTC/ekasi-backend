@@ -392,6 +392,9 @@ async function sendDailySummary() {
 
     // Staff hours today
     const todayStaffAtt = staffAttRaw.filter(a => a.date === today);
+    const todayPGAtt = pgAttendanceRaw.filter(a => a.date === today);
+    const pgPresentIds = new Set(todayPGAtt.map(a => a.student_id));
+    const pgPresentCount = pgStudentsRaw.filter(s => pgPresentIds.has(s.id)).length;
 
     // Sats owed
     const SATS = 500;
@@ -424,7 +427,15 @@ async function sendDailySummary() {
       const status = excuse ? '<span style="color:#60A5FA">' + excuse.reason.split(" ")[0] + " " + excuse.reason.split(" ")[1] + "</span>" : '<span style="color:#F87171">&#10007; Absent</span>';
       return '<tr><td style="padding:8px 12px;border-bottom:1px solid #1C1C28;color:#F7931A;font-weight:600">' + s.name + '</td><td style="padding:8px 12px;border-bottom:1px solid #1C1C28;text-align:right">' + status + '</td></tr>';
     }).join("");
+    
+   const pgRows = pgStudentsRaw.length > 0 ? pgStudentsRaw.map(s => {
+   const present = pgPresentIds.has(s.id);
+  return '<tr><td style="padding:8px 12px;border-bottom:1px solid #1C1C28;color:#C084FC;font-weight:600">' + s.name + '</td><td style="padding:8px 12px;border-bottom:1px solid #1C1C28;text-align:right;color:' + (present ? '#10B981' : '#F87171') + '">' + (present ? '&#10003; Present' : '&#10007; Absent') + '</td></tr>';
+}).join("") : '<tr><td colspan="2" style="padding:12px;color:#55556A;text-align:center">No postgrad students enrolled</td></tr>';
 
+const staffRows = todayStaffAtt.length > 0 ? todayStaffAtt.map(a => {
+    
+    
     const staffRows = todayStaffAtt.length > 0 ? todayStaffAtt.map(a => {
       const staff = staffRaw.find(s => s.id === a.staff_id);
       return '<tr><td style="padding:8px 12px;border-bottom:1px solid #1C1C28;color:#6366F1;font-weight:600">' + (staff ? staff.name : "Unknown") + '</td><td style="padding:8px 12px;border-bottom:1px solid #1C1C28;text-align:right;color:#F0F0F8">' + a.hours + ' hrs</td></tr>';
@@ -472,6 +483,12 @@ async function sendDailySummary() {
       staffRows,
       '</table>',
       '</div>',
+      '<div style="padding:0 24px 20px">',
+      '<div style="font-size:11px;font-weight:700;color:#9090A8;letter-spacing:2px;text-transform:uppercase;margin-bottom:10px">🎓 Postgrad Attendance Today (' + pgPresentCount + '/' + pgStudentsRaw.length + ')</div>',
+      '<table style="width:100%;border-collapse:collapse;background:#111118;border-radius:10px;overflow:hidden">',
+      pgRows,
+      '</table>',
+      '</div>',
 
       // Footer
       '<div style="padding:16px 24px;border-top:1px solid #1C1C28;text-align:center">',
@@ -513,6 +530,9 @@ async function sendWeeklySummary() {
     const attendanceRaw = await supabase("GET", "attendance", null, "?order=date.desc");
     const staffRaw = await supabase("GET", "staff", null, "");
     const staffAttRaw = await supabase("GET", "staff_attendance", null, "");
+    const excusesRaw = await supabase("GET", "excuses", null, "?order=date.desc");
+    const pgStudentsRaw = await supabase("GET", "postgrad_students", null, "?status=eq.active&order=created_at.asc");
+    const pgAttendanceRaw = await supabase("GET", "postgrad_attendance", null, "");
 
     const todayFmt = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Johannesburg", year: "numeric", month: "2-digit", day: "2-digit" });
     const today = todayFmt.format(new Date());
