@@ -46,7 +46,7 @@ async function sendWhatsAppPayment(whatsappNumber, apikey, staffName, amount) {
   }
   const cleanNumber = whatsappNumber.replace(/[\s+]/g, "");
   try {
-    const message = `⚡ Hi ${staffName}, you've received ${amount.toLocaleString()} sats from Bitcoin Ekasi!`;
+    const message = `⚡ Hi ${staffName}! ${amount.toLocaleString()} sats have just landed in your wallet. Thank you for the incredible work you do shaping the next generation at Bitcoin Ekasi — your dedication doesn't go unnoticed. 🙏`;
     const url = `https://api.callmebot.com/whatsapp.php?phone=${cleanNumber}&text=${encodeURIComponent(message)}&apikey=${apikey}`;
     const res = await fetch(url);
     const text = await res.text();
@@ -64,7 +64,7 @@ async function sendTelegramPayment(chatId, staffName, amount) {
     return;
   }
   try {
-    const message = `⚡ Hi ${staffName}, you've received ${amount.toLocaleString()} sats from Bitcoin Ekasi!`;
+    const message = `⚡ Hi ${staffName}! ${amount.toLocaleString()} sats have just landed in your wallet. Thank you for the incredible work you do shaping the next generation at Bitcoin Ekasi — your dedication doesn't go unnoticed. 🙏`;
     const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
     const res = await fetch(url, {
       method: "POST",
