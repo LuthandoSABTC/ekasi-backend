@@ -375,7 +375,7 @@ async function sendDailySummary() {
     const staffRaw = await supabase("GET", "staff", null, "");
     const staffAttRaw = await supabase("GET", "staff_attendance", null, "");
     const excusesRaw = await supabase("GET", "excuses", null, "?order=date.desc");
-    const excusesRaw = await supabase("GET", "excuses", null, "?order=date.desc");
+   
     const pgStudentsRaw = await supabase("GET", "postgrad_students", null, "?status=eq.active&order=created_at.asc");
     const pgAttendanceRaw = await supabase("GET", "postgrad_attendance", null, "");
     const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Johannesburg", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
