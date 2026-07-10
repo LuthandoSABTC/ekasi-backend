@@ -431,21 +431,7 @@ async function sendDailySummary() {
       return '<tr><td style="padding:8px 12px;border-bottom:1px solid #1C1C28;color:#F7931A;font-weight:600">' + s.name + '</td><td style="padding:8px 12px;border-bottom:1px solid #1C1C28;text-align:right">' + status + '</td></tr>';
     }).join("");
     
-       const pgRows = pgStudentsRaw.length > 0 ? pgStudentsRaw.map(s => {
-      const present = pgPresentIds.has(s.id);
-      const excuse = pgExcusesRaw.find(e => e.student_id === s.id && e.date === today);
-      let statusHtml;
-      if (present) {
-        statusHtml = '<span style="color:#10B981">&#10003; Present</span>';
-      } else if (excuse) {
-        statusHtml = '<span style="color:#60A5FA">' + excuse.reason + '</span>';
-      } else {
-        statusHtml = '<span style="color:#F87171">&#10007; Absent</span>';
-      }
-      return '<tr><td style="padding:8px 12px;border-bottom:1px solid #1C1C28;color:#C084FC;font-weight:600">' + s.name + '</td><td style="padding:8px 12px;border-bottom:1px solid #1C1C28;text-align:right">' + statusHtml + '</td></tr>';
-    }).join("") : '<tr><td colspan="2" style="padding:12px;color:#55556A;text-align:center">No postgrad students enrolled</td></tr>';
- 
-const pgRows = pgStudentsRaw.length > 0 ? pgStudentsRaw.map(s => {
+        const pgRows = pgStudentsRaw.length > 0 ? pgStudentsRaw.map(s => {
       const present = pgPresentIds.has(s.id);
       const excuse = pgExcusesRaw.find(e => e.student_id === s.id && e.date === today);
       let statusHtml;
