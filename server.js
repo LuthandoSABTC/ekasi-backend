@@ -378,6 +378,7 @@ async function sendDailySummary() {
    
     const pgStudentsRaw = await supabase("GET", "postgrad_students", null, "?status=eq.active&order=created_at.asc");
     const pgAttendanceRaw = await supabase("GET", "postgrad_attendance", null, "");
+    const pgExcusesRaw = await supabase("GET", "postgrad_excuses", null, "");
     const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Johannesburg", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
     const todayFormatted = new Date().toLocaleDateString("en-ZA", { timeZone: "Africa/Johannesburg", weekday: "long", year: "numeric", month: "long", day: "numeric" });
 
@@ -430,25 +431,33 @@ async function sendDailySummary() {
       return '<tr><td style="padding:8px 12px;border-bottom:1px solid #1C1C28;color:#F7931A;font-weight:600">' + s.name + '</td><td style="padding:8px 12px;border-bottom:1px solid #1C1C28;text-align:right">' + status + '</td></tr>';
     }).join("");
     
-   const pgRows = pgStudentsRaw.length > 0 ? pgStudentsRaw.map(s => {
-   const present = pgPresentIds.has(s.id);
-  return '<tr><td style="padding:8px 12px;border-bottom:1px solid #1C1C28;color:#C084FC;font-weight:600">' + s.name + '</td><td style="padding:8px 12px;border-bottom:1px solid #1C1C28;text-align:right;color:' + (present ? '#10B981' : '#F87171') + '">' + (present ? '&#10003; Present' : '&#10007; Absent') + '</td></tr>';
-}).join("") : '<tr><td colspan="2" style="padding:12px;color:#55556A;text-align:center">No postgrad students enrolled</td></tr>';
-
-    const staffRows = todayStaffAtt.length > 0 ? todayStaffAtt.map(a => {
-      const staff = staffRaw.find(s => s.id === a.staff_id);
-      return '<tr><td style="padding:8px 12px;border-bottom:1px solid #1C1C28;color:#6366F1;font-weight:600">' + (staff ? staff.name : "Unknown") + '</td><td style="padding:8px 12px;border-bottom:1px solid #1C1C28;text-align:right;color:#F0F0F8">' + a.hours + ' hrs</td></tr>';
-    }).join("") : '<tr><td colspan="2" style="padding:12px;color:#55556A;text-align:center">No hours logged today</td></tr>';
-
-    const html = [
-      '<div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;background:#0A0A0F;color:#F0F0F8;border-radius:16px;overflow:hidden">',
-
-      // Header
-      '<div style="background:linear-gradient(135deg,#F7931A,#E87D0D);padding:28px 24px;text-align:center">',
-      '<div style="font-size:36px;margin-bottom:8px">&#9889;</div>',
-      '<div style="font-size:22px;font-weight:800;color:#000">Bitcoin Ekasi</div>',
-      '<div style="font-size:14px;color:rgba(0,0,0,0.7);margin-top:4px">Daily Summary — ' + todayFormatted + '</div>',
-      '</div>',
+       const pgRows = pgStudentsRaw.length > 0 ? pgStudentsRaw.map(s => {
+      const present = pgPresentIds.has(s.id);
+      const excuse = pgExcusesRaw.find(e => e.student_id === s.id && e.date === today);
+      let statusHtml;
+      if (present) {
+        statusHtml = '<span style="color:#10B981">&#10003; Present</span>';
+      } else if (excuse) {
+        statusHtml = '<span style="color:#60A5FA">' + excuse.reason + '</span>';
+      } else {
+        statusHtml = '<span style="color:#F87171">&#10007; Absent</span>';
+      }
+      return '<tr><td style="padding:8px 12px;border-bottom:1px solid #1C1C28;color:#C084FC;font-weight:600">' + s.name + '</td><td style="padding:8px 12px;border-bottom:1px solid #1C1C28;text-align:right">' + statusHtml + '</td></tr>';
+    }).join("") : '<tr><td colspan="2" style="padding:12px;color:#55556A;text-align:center">No postgrad students enrolled</td></tr>';
+ 
+const pgRows = pgStudentsRaw.length > 0 ? pgStudentsRaw.map(s => {
+      const present = pgPresentIds.has(s.id);
+      const excuse = pgExcusesRaw.find(e => e.student_id === s.id && e.date === today);
+      let statusHtml;
+      if (present) {
+        statusHtml = '<span style="color:#10B981">&#10003; Present</span>';
+      } else if (excuse) {
+        statusHtml = '<span style="color:#60A5FA">' + excuse.reason + '</span>';
+      } else {
+        statusHtml = '<span style="color:#F87171">&#10007; Absent</span>';
+      }
+      return '<tr><td style="padding:8px 12px;border-bottom:1px solid #1C1C28;color:#C084FC;font-weight:600">' + s.name + '</td><td style="padding:8px 12px;border-bottom:1px solid #1C1C28;text-align:right">' + statusHtml + '</td></tr>';
+    }).join("") : '<tr><td colspan="2" style="padding:12px;color:#55556A;text-align:center">No postgrad students enrolled</td></tr>';
 
       // Stats strip
       '<div style="display:flex;border-bottom:1px solid #1C1C28">',
