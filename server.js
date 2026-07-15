@@ -8,6 +8,8 @@ app.use(cors());
 app.use(express.json());
 
 const BLINK_URL = "https://api.blink.sv/graphql";
+const COMMUNITY_RECAP_WHATSAPP_NUMBER = process.env.COMMUNITY_RECAP_WHATSAPP_NUMBER;
+const COMMUNITY_RECAP_CALLMEBOT_APIKEY = process.env.COMMUNITY_RECAP_CALLMEBOT_APIKEY;
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const ALERT_TO = ["luthando@bitcoinekasi.com"];
 const ALERT_FROM = "onboarding@resend.dev";
@@ -515,10 +517,21 @@ cron.schedule("0 17 * * 2-5", () => {
   sendDailySummary();
 }, { timezone: "UTC" });
 
+cron.schedule("15 17 * * 5", () => {
+  console.log("Running WhatsApp community recap...");
+  postWeeklyRecapToWhatsApp();
+}, { timezone: "UTC" });
+
+
 // Test endpoint to trigger summary manually
 app.get("/send-summary", async (req, res) => {
   await sendDailySummary();
   res.json({ success: true, message: "Daily summary sent" });
+});
+
+app.get("/post-weekly-whatsapp", async (req, res) => {
+  await postWeeklyRecapToWhatsApp();
+  res.json({ success: true, message: "Community recap sent to your WhatsApp — check your phone to forward it" });
 });
 
 const PORT = process.env.PORT || 3001;
