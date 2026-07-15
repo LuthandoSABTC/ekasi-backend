@@ -561,7 +561,7 @@ async function postWeeklyRecapToWhatsApp() {
     const weekLabelStart = new Date(weekDates[0] + "T00:00:00Z");
     const weekLabelEnd = new Date(weekDates[3] + "T00:00:00Z");
     const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-    const weekLabel = weekLabelStart.getUTCDate() + " " + monthNames[weekLabelStart.getUTCMonth()] + "\u2013" + weekLabelEnd.getUTCDate() + " " + monthNames[weekLabelEnd.getUTCMonth()] + " " + weekLabelEnd.getUTCFullYear();
+    const weekLabel = weekLabelStart.getUTCDate() + " " + monthNames[weekLabelStart.getUTCMonth()] + "–" + weekLabelEnd.getUTCDate() + " " + monthNames[weekLabelEnd.getUTCMonth()] + " " + weekLabelEnd.getUTCFullYear();
 
     const SATS = 500;
     const STAFF_SATS_PER_HOUR = 1300;
@@ -586,32 +586,44 @@ async function postWeeklyRecapToWhatsApp() {
     const weekAttRate = activeStudents.length > 0 ? Math.round((totalWeekDays / (activeStudents.length * 4)) * 100) : 0;
 
     let staffWeekHours = 0;
+    const staffEarnings = [];
     staffRaw.forEach(s => {
-      staffWeekHours += staffAttRaw.filter(a => a.staff_id === s.id && weekDates.includes(a.date)).reduce((sum, a) => sum + parseFloat(a.hours || 0), 0);
+      const hrs = staffAttRaw.filter(a => a.staff_id === s.id && weekDates.includes(a.date)).reduce((sum, a) => sum + parseFloat(a.hours || 0), 0);
+      staffWeekHours += hrs;
+      staffEarnings.push({ name: s.name, hours: hrs, sats: Math.round(hrs * STAFF_SATS_PER_HOUR) });
     });
+    staffEarnings.sort((a, b) => b.sats - a.sats);
     const staffWeekEarned = Math.round(staffWeekHours * STAFF_SATS_PER_HOUR);
     const totalSpent = totalWeekSats + staffWeekEarned;
 
+    const staffEarningsLines = staffEarnings
+      .filter(s => s.hours > 0)
+      .map(s => s.name + " — " + s.hours.toFixed(1) + "h — ⚡" + s.sats.toLocaleString())
+      .join("\n") || "No staff hours logged this week";
+
     const perfectBlock = perfectNames.length > 0
-      ? "\uD83C\uDFC6 Perfect attendance: " + perfectNames.join(", ") + "\n\n"
+      ? "🏆 Perfect attendance: " + perfectNames.join(", ") + "\n\n"
       : "\n";
 
     const earningsLines = studentEarnings
-      .map(s => s.name + " \u2014 " + s.days + (s.days === 1 ? " day" : " days") + " \u2014 \u26A1" + s.sats.toLocaleString())
+      .map(s => s.name + " — " + s.days + (s.days === 1 ? " day" : " days") + " — ⚡" + s.sats.toLocaleString())
       .join("\n");
 
     const message =
-`\u26A1 *Bitcoin Ekasi Weekly Recap*
+`⚡ *Bitcoin Ekasi Weekly Recap*
 ${weekLabel}
 
-\uD83D\uDC65 ${activeCount}/${activeStudents.length} students attended
-\uD83D\uDCCA ${weekAttRate}% attendance rate
-${perfectBlock}\uD83D\uDCCB *This Week's Earnings:*
+👥 ${activeCount}/${activeStudents.length} students attended
+📊 ${weekAttRate}% attendance rate
+${perfectBlock}📋 *This Week's Earnings:*
 ${earningsLines}
 
-\u26A1 ${totalSpent.toLocaleString()} sats paid out this week
+👩‍🏫 *Teaching Team:*
+${staffEarningsLines}
 
-_Forward this to the community group \uD83D\uDC47_`;
+⚡ ${totalSpent.toLocaleString()} sats paid out this week
+
+_Forward this to the community group 👇_`;
 
     const cleanNumber = COMMUNITY_RECAP_WHATSAPP_NUMBER.replace(/[\s+]/g, "");
     const url = `https://api.callmebot.com/whatsapp.php?phone=${cleanNumber}&text=${encodeURIComponent(message)}&apikey=${COMMUNITY_RECAP_CALLMEBOT_APIKEY}`;
@@ -623,6 +635,7 @@ _Forward this to the community group \uD83D\uDC47_`;
     console.error("Community recap failed:", e.message);
   }
 }
+
 cron.schedule("15 17 * * 5", () => {
   console.log("Running WhatsApp community recap...");
   postWeeklyRecapToWhatsApp();
