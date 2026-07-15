@@ -719,7 +719,7 @@ cron.schedule("15 17 * * 5", () => {
   postWeeklyRecapToWhatsApp();
 }, { timezone: "UTC" });
 
-  const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => console.log(`Ekasi backend running on port ${PORT}`));
 
 // ── Weekly Summary Email (Fridays, 7pm SAST = 5pm UTC) ────────
