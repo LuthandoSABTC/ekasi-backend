@@ -640,6 +640,26 @@ cron.schedule("15 17 * * 5", () => {
   console.log("Running WhatsApp community recap...");
   postWeeklyRecapToWhatsApp();
 }, { timezone: "UTC" });
+function chunkMessage(text, maxLen = 600) {
+  const paragraphs = text.split(/\n\n/);
+  const chunks = [];
+  let current = "";
+  for (const p of paragraphs) {
+    const candidate = current ? current + "\n\n" + p : p;
+    if (candidate.length > maxLen && current) {
+      chunks.push(current);
+      current = p;
+    } else {
+      current = candidate;
+    }
+    while (current.length > maxLen) {
+      chunks.push(current.slice(0, maxLen));
+      current = current.slice(maxLen);
+    }
+  }
+  if (current) chunks.push(current);
+  return chunks;
+}
 app.post("/send-stakeholder-update", async (req, res) => {
   const { message } = req.body;
   if (!message) return res.status(400).json({ error: "Missing 'message' in request body" });
@@ -648,15 +668,20 @@ app.post("/send-stakeholder-update", async (req, res) => {
   }
   try {
     const cleanNumber = COMMUNITY_RECAP_WHATSAPP_NUMBER.replace(/[\s+]/g, "");
-    const url = `https://api.callmebot.com/whatsapp.php?phone=${cleanNumber}&text=${encodeURIComponent(message)}&apikey=${COMMUNITY_RECAP_CALLMEBOT_APIKEY}`;
-    const r = await fetch(url);
-    const text = await r.text();
-    if (!r.ok) {
-      console.error("Stakeholder update WhatsApp error:", text.slice(0, 200));
-      return res.status(500).json({ error: text.slice(0, 200) });
+    const chunks = chunkMessage(message, 600);
+    for (let i = 0; i < chunks.length; i++) {
+      const part = chunks.length > 1 ? `(${i + 1}/${chunks.length})\n\n${chunks[i]}` : chunks[i];
+      const url = `https://api.callmebot.com/whatsapp.php?phone=${cleanNumber}&text=${encodeURIComponent(part)}&apikey=${COMMUNITY_RECAP_CALLMEBOT_APIKEY}`;
+      const r = await fetch(url);
+      const text = await r.text();
+      if (!r.ok) {
+        console.error("Stakeholder update WhatsApp error on part " + (i + 1) + ":", text.slice(0, 200));
+        return res.status(500).json({ error: "Failed on part " + (i + 1) + ": " + text.slice(0, 200) });
+      }
+      if (i < chunks.length - 1) await new Promise(resolve => setTimeout(resolve, 1500));
     }
-    console.log("Stakeholder update sent:", text.slice(0, 100));
-    res.json({ success: true, message: "Stakeholder update sent to WhatsApp" });
+    console.log("Stakeholder update sent in", chunks.length, "part(s)");
+    res.json({ success: true, message: `Stakeholder update sent to WhatsApp in ${chunks.length} part(s)` });
   } catch (e) {
     console.error("Stakeholder update failed:", e.message);
     res.status(500).json({ error: e.message });
