@@ -528,11 +528,103 @@ app.get("/send-summary", async (req, res) => {
   await sendDailySummary();
   res.json({ success: true, message: "Daily summary sent" });
 });
+async function postWeeklyRecapToWhatsApp() {
+  console.log("Sending weekly community recap to WhatsApp...");
+  if (!COMMUNITY_RECAP_WHATSAPP_NUMBER || !COMMUNITY_RECAP_CALLMEBOT_APIKEY) {
+    console.log("No community recap WhatsApp credentials configured — skipping");
+    return;
+  }
+  try {
+    const studentsRaw = await supabase("GET", "students", null, "?order=created_at.asc");
+    const attendanceRaw = await supabase("GET", "attendance", null, "?order=date.desc");
+    const staffRaw = await supabase("GET", "staff", null, "");
+    const staffAttRaw = await supabase("GET", "staff_attendance", null, "");
+
+    const todayFmt = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Johannesburg", year: "numeric", month: "2-digit", day: "2-digit" });
+    const today = todayFmt.format(new Date());
+    const todayDate = new Date(today + "T00:00:00Z");
+    const dow = todayDate.getUTCDay();
+    const diffToTue = (dow === 0) ? -5 : (dow === 1) ? -6 : -(dow - 2);
+    const tue = new Date(todayDate);
+    tue.setUTCDate(tue.getUTCDate() + diffToTue);
+    const weekDates = [];
+    for (let i = 0; i < 4; i++) {
+      const d = new Date(tue);
+      d.setUTCDate(d.getUTCDate() + i);
+      weekDates.push(d.toISOString().split("T")[0]);
+    }
+
+    const weekLabelStart = new Date(weekDates[0] + "T00:00:00Z");
+    const weekLabelEnd = new Date(weekDates[3] + "T00:00:00Z");
+    const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    const weekLabel = weekLabelStart.getUTCDate() + " " + monthNames[weekLabelStart.getUTCMonth()] + "\u2013" + weekLabelEnd.getUTCDate() + " " + monthNames[weekLabelEnd.getUTCMonth()] + " " + weekLabelEnd.getUTCFullYear();
+
+    const SATS = 500;
+    const STAFF_SATS_PER_HOUR = 1300;
+    const activeStudents = studentsRaw.filter(s => !s.status || s.status === "active");
+
+    let totalWeekDays = 0;
+    let totalWeekSats = 0;
+    let perfectCount = 0;
+    const perfectNames = [];
+    const studentEarnings = [];
+    activeStudents.forEach(s => {
+      const days = attendanceRaw.filter(a => a.student_id === s.id && weekDates.includes(a.date)).length;
+      const sats = days * SATS;
+      totalWeekDays += days;
+      totalWeekSats += sats;
+      if (days >= 4) { perfectCount++; perfectNames.push(s.name); }
+      studentEarnings.push({ name: s.name, days, sats });
+    });
+    studentEarnings.sort((a, b) => b.sats - a.sats);
+
+    const activeCount = activeStudents.filter(s => attendanceRaw.some(a => a.student_id === s.id && weekDates.includes(a.date))).length;
+    const weekAttRate = activeStudents.length > 0 ? Math.round((totalWeekDays / (activeStudents.length * 4)) * 100) : 0;
+
+    let staffWeekHours = 0;
+    staffRaw.forEach(s => {
+      staffWeekHours += staffAttRaw.filter(a => a.staff_id === s.id && weekDates.includes(a.date)).reduce((sum, a) => sum + parseFloat(a.hours || 0), 0);
+    });
+    const staffWeekEarned = Math.round(staffWeekHours * STAFF_SATS_PER_HOUR);
+    const totalSpent = totalWeekSats + staffWeekEarned;
+
+    const perfectBlock = perfectNames.length > 0
+      ? "\uD83C\uDFC6 Perfect attendance: " + perfectNames.join(", ") + "\n\n"
+      : "\n";
+
+    const earningsLines = studentEarnings
+      .map(s => s.name + " \u2014 " + s.days + (s.days === 1 ? " day" : " days") + " \u2014 \u26A1" + s.sats.toLocaleString())
+      .join("\n");
+
+    const message =
+`\u26A1 *Bitcoin Ekasi Weekly Recap*
+${weekLabel}
+
+\uD83D\uDC65 ${activeCount}/${activeStudents.length} students attended
+\uD83D\uDCCA ${weekAttRate}% attendance rate
+${perfectBlock}\uD83D\uDCCB *This Week's Earnings:*
+${earningsLines}
+
+\u26A1 ${totalSpent.toLocaleString()} sats paid out this week
+
+_Forward this to the community group \uD83D\uDC47_`;
+
+    const cleanNumber = COMMUNITY_RECAP_WHATSAPP_NUMBER.replace(/[\s+]/g, "");
+    const url = `https://api.callmebot.com/whatsapp.php?phone=${cleanNumber}&text=${encodeURIComponent(message)}&apikey=${COMMUNITY_RECAP_CALLMEBOT_APIKEY}`;
+    const res = await fetch(url);
+    const text = await res.text();
+    if (!res.ok) console.error("Community recap WhatsApp error:", text.slice(0, 200));
+    else console.log("Community recap sent - ready to forward:", text.slice(0, 100));
+  } catch (e) {
+    console.error("Community recap failed:", e.message);
+  }
 
 app.get("/post-weekly-whatsapp", async (req, res) => {
   await postWeeklyRecapToWhatsApp();
   res.json({ success: true, message: "Community recap sent to your WhatsApp — check your phone to forward it" });
 });
+
+
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => console.log(`Ekasi backend running on port ${PORT}`));
