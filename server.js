@@ -522,7 +522,6 @@ cron.schedule("15 17 * * 5", () => {
   postWeeklyRecapToWhatsApp();
 }, { timezone: "UTC" });
 
-
 // Test endpoint to trigger summary manually
 app.get("/send-summary", async (req, res) => {
   await sendDailySummary();
