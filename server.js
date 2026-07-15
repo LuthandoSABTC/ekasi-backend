@@ -640,6 +640,28 @@ cron.schedule("15 17 * * 5", () => {
   console.log("Running WhatsApp community recap...");
   postWeeklyRecapToWhatsApp();
 }, { timezone: "UTC" });
+app.post("/send-stakeholder-update", async (req, res) => {
+  const { message } = req.body;
+  if (!message) return res.status(400).json({ error: "Missing 'message' in request body" });
+  if (!COMMUNITY_RECAP_WHATSAPP_NUMBER || !COMMUNITY_RECAP_CALLMEBOT_APIKEY) {
+    return res.status(400).json({ error: "WhatsApp credentials not configured" });
+  }
+  try {
+    const cleanNumber = COMMUNITY_RECAP_WHATSAPP_NUMBER.replace(/[\s+]/g, "");
+    const url = `https://api.callmebot.com/whatsapp.php?phone=${cleanNumber}&text=${encodeURIComponent(message)}&apikey=${COMMUNITY_RECAP_CALLMEBOT_APIKEY}`;
+    const r = await fetch(url);
+    const text = await r.text();
+    if (!r.ok) {
+      console.error("Stakeholder update WhatsApp error:", text.slice(0, 200));
+      return res.status(500).json({ error: text.slice(0, 200) });
+    }
+    console.log("Stakeholder update sent:", text.slice(0, 100));
+    res.json({ success: true, message: "Stakeholder update sent to WhatsApp" });
+  } catch (e) {
+    console.error("Stakeholder update failed:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => console.log(`Ekasi backend running on port ${PORT}`));
