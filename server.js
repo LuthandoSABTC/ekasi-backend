@@ -691,6 +691,103 @@ app.post("/send-stakeholder-update", async (req, res) => {
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => console.log(`Ekasi backend running on port ${PORT}`));
 
+// ═══════════════════════════════════════════════════════════════
+// WEEKLY STAFF BONUS — new self-contained addition to server.js
+// Does NOT touch any existing function. Grants 1,300 sats bonus
+// to whoever logs the most hours each week (Tue-Fri).
+// ═══════════════════════════════════════════════════════════════
+
+const STAFF_BONUS_SATS = 1300;
+
+async function grantWeeklyStaffBonus() {
+  console.log("Checking weekly staff bonus...");
+  try {
+    const staffRaw = await supabase("GET", "staff", null, "");
+    const staffAttRaw = await supabase("GET", "staff_attendance", null, "");
+
+    const todayFmt = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Johannesburg", year: "numeric", month: "2-digit", day: "2-digit" });
+    const today = todayFmt.format(new Date());
+    const todayDate = new Date(today + "T00:00:00Z");
+    const dow = todayDate.getUTCDay();
+    const diffToTue = (dow === 0) ? -5 : (dow === 1) ? -6 : -(dow - 2);
+    const tue = new Date(todayDate);
+    tue.setUTCDate(tue.getUTCDate() + diffToTue);
+    const weekDates = [];
+    for (let i = 0; i < 4; i++) {
+      const d = new Date(tue);
+      d.setUTCDate(d.getUTCDate() + i);
+      weekDates.push(d.toISOString().split("T")[0]);
+    }
+
+    if (!staffRaw.length) {
+      console.log("No staff members found — skipping bonus check");
+      return;
+    }
+
+    const staffHours = staffRaw.map(s => {
+      const hours = staffAttRaw.filter(a => a.staff_id === s.id && weekDates.includes(a.date)).reduce((sum, a) => sum + parseFloat(a.hours || 0), 0);
+      return { id: s.id, name: s.name, hours, whatsappNumber: s.whatsapp_number, callmebotApikey: s.callmebot_apikey, telegramChatId: s.telegram_chat_id, currentBonus: s.bonus || 0 };
+    });
+
+    const maxHours = Math.max(...staffHours.map(s => s.hours));
+    if (maxHours <= 0) {
+      console.log("No staff hours logged this week — skipping bonus");
+      return;
+    }
+
+    const winners = staffHours.filter(s => s.hours === maxHours);
+
+    for (const winner of winners) {
+      const newBonus = winner.currentBonus + STAFF_BONUS_SATS;
+      await supabase("PATCH", "staff", { bonus: newBonus }, "?id=eq." + winner.id);
+      console.log("Bonus granted:", winner.name, "-", winner.hours, "hrs -", "+" + STAFF_BONUS_SATS, "sats");
+
+      const congratsMessage = `\uD83C\uDFC6 Congratulations ${winner.name}! You logged the most hours this week (${winner.hours.toFixed(1)} hrs) and earned a \u26A1${STAFF_BONUS_SATS.toLocaleString()} sat bonus on top of your regular pay. Thank you for your dedication to Bitcoin Ekasi! \uD83C\uDF89`;
+
+      if (winner.whatsappNumber && winner.callmebotApikey) {
+        try {
+          const cleanNumber = winner.whatsappNumber.replace(/[\s+]/g, "");
+          const url = `https://api.callmebot.com/whatsapp.php?phone=${cleanNumber}&text=${encodeURIComponent(congratsMessage)}&apikey=${winner.callmebotApikey}`;
+          await fetch(url);
+          console.log("Bonus WhatsApp notification sent to", winner.name);
+        } catch (e) {
+          console.error("Bonus WhatsApp notification failed for", winner.name, ":", e.message);
+        }
+      }
+
+      if (winner.telegramChatId && TELEGRAM_BOT_TOKEN) {
+        try {
+          const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
+          await fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ chat_id: winner.telegramChatId, text: congratsMessage })
+          });
+          console.log("Bonus Telegram notification sent to", winner.name);
+        } catch (e) {
+          console.error("Bonus Telegram notification failed for", winner.name, ":", e.message);
+        }
+      }
+    }
+
+    console.log("Weekly staff bonus complete. Winner(s):", winners.map(w => w.name).join(", "));
+  } catch (e) {
+    console.error("Weekly staff bonus failed:", e.message);
+  }
+}
+
+// Schedule: Fridays, alongside the other weekly jobs
+cron.schedule("20 17 * * 5", () => {
+  console.log("Running weekly staff bonus check...");
+  grantWeeklyStaffBonus();
+}, { timezone: "UTC" });
+
+// Manual test endpoint
+app.get("/grant-staff-bonus", async (req, res) => {
+  await grantWeeklyStaffBonus();
+  res.json({ success: true, message: "Staff bonus check triggered — check logs for the winner" });
+});
+
 // ── Weekly Summary Email (Fridays, 7pm SAST = 5pm UTC) ────────
 async function sendWeeklySummary() {
   console.log("Sending weekly summary email...");
