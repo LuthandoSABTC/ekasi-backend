@@ -202,6 +202,36 @@ app.delete("/db/:table", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ═══════════════════════════════════════════════════════════════
+// PUBLIC ALUMNI ENDPOINT — new self-contained addition to server.js
+// Only exposes safe, public info — no Lightning addresses, no payments.
+// ═══════════════════════════════════════════════════════════════
+
+app.get("/alumni", async (req, res) => {
+  try {
+    const studentsRaw = await supabase("GET", "students", null, "?status=eq.alumni&order=graduated_at.desc");
+    const attendanceRaw = await supabase("GET", "attendance", null, "");
+
+    const SATS = 500;
+    const alumni = studentsRaw.map(s => {
+      const days = attendanceRaw.filter(a => a.student_id === s.id).length;
+      return {
+        name: s.name,
+        cohort: s.cohort || "Bitcoin Ekasi",
+        graduatedAt: s.graduated_at || null,
+        totalDays: days,
+        totalSats: days * SATS + (s.bonus || 0)
+      };
+    });
+
+    res.json({ count: alumni.length, alumni });
+  } catch (e) {
+    console.error("Public alumni fetch error:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+
 // ── Blink test ──
 app.post("/test", async (req, res) => {
   const { apiKey } = req.body;
