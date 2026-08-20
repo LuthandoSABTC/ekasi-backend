@@ -578,12 +578,12 @@ async function postWeeklyRecapToWhatsApp() {
     const today = todayFmt.format(new Date());
     const todayDate = new Date(today + "T00:00:00Z");
     const dow = todayDate.getUTCDay();
-    const diffToTue = (dow === 0) ? -5 : (dow === 1) ? -6 : -(dow - 2);
-    const tue = new Date(todayDate);
-    tue.setUTCDate(tue.getUTCDate() + diffToTue);
+    const diffToMon = (dow === 0) ? -6 : -(dow - 1);
+    const mon = new Date(todayDate);
+    mon.setUTCDate(mon.getUTCDate() + diffToMon);
     const weekDates = [];
-    for (let i = 0; i < 4; i++) {
-      const d = new Date(tue);
+    for (let i = 0; i < 5; i++) {
+      const d = new Date(mon);
       d.setUTCDate(d.getUTCDate() + i);
       weekDates.push(d.toISOString().split("T")[0]);
     }
