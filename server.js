@@ -541,8 +541,8 @@ async function sendDailySummary() {
   }
 }
 
-// Schedule: Tuesday–Friday at 5pm UTC (7pm SAST) — class days only
-cron.schedule("0 17 * * 2-5", () => {
+// Schedule: Monday–Friday at 5pm UTC (7pm SAST) — class days only
+cron.schedule("0 17 * * 1-5", () => {
   console.log("Running daily summary cron job...");
   sendDailySummary();
 }, { timezone: "UTC" });
