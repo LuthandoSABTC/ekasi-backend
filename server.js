@@ -589,7 +589,7 @@ async function postWeeklyRecapToWhatsApp() {
     }
 
     const weekLabelStart = new Date(weekDates[0] + "T00:00:00Z");
-    const weekLabelEnd = new Date(weekDates[3] + "T00:00:00Z");
+    const weekLabelEnd = new Date(weekDates[4] + "T00:00:00Z");
     const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
     const weekLabel = weekLabelStart.getUTCDate() + " " + monthNames[weekLabelStart.getUTCMonth()] + "–" + weekLabelEnd.getUTCDate() + " " + monthNames[weekLabelEnd.getUTCMonth()] + " " + weekLabelEnd.getUTCFullYear();
 
