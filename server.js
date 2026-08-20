@@ -396,6 +396,120 @@ app.post("/pay", async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 });
+// ═══════════════════════════════════════════════════════════════
+// WEEKLY RECAP SHAREABLE IMAGE — new self-contained addition to server.js
+// Does NOT touch any existing function. Monday–Friday week.
+// ═══════════════════════════════════════════════════════════════
+
+app.get("/weekly-recap.svg", async (req, res) => {
+  try {
+    const studentsRaw = await supabase("GET", "students", null, "?order=created_at.asc");
+    const attendanceRaw = await supabase("GET", "attendance", null, "?order=date.desc");
+    const staffRaw = await supabase("GET", "staff", null, "");
+    const staffAttRaw = await supabase("GET", "staff_attendance", null, "");
+
+    const todayFmt = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Johannesburg", year: "numeric", month: "2-digit", day: "2-digit" });
+    const today = todayFmt.format(new Date());
+    const todayDate = new Date(today + "T00:00:00Z");
+    const dow = todayDate.getUTCDay();
+    const diffToMon = (dow === 0) ? -6 : -(dow - 1);
+    const mon = new Date(todayDate);
+    mon.setUTCDate(mon.getUTCDate() + diffToMon);
+    const weekDates = [];
+    for (let i = 0; i < 5; i++) {
+      const d = new Date(mon);
+      d.setUTCDate(d.getUTCDate() + i);
+      weekDates.push(d.toISOString().split("T")[0]);
+    }
+
+    const weekLabelStart = new Date(weekDates[0] + "T00:00:00Z");
+    const weekLabelEnd = new Date(weekDates[4] + "T00:00:00Z");
+    const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    const weekLabel = weekLabelStart.getUTCDate() + " " + monthNames[weekLabelStart.getUTCMonth()] + " \u2013 " + weekLabelEnd.getUTCDate() + " " + monthNames[weekLabelEnd.getUTCMonth()] + " " + weekLabelEnd.getUTCFullYear();
+
+    const SATS = 500;
+    const STAFF_SATS_PER_HOUR = 1300;
+    const activeStudents = studentsRaw.filter(s => !s.status || s.status === "active");
+
+    let totalWeekDays = 0;
+    let totalWeekSats = 0;
+    let perfectCount = 0;
+    let mostImproved = null;
+    activeStudents.forEach(s => {
+      const days = attendanceRaw.filter(a => a.student_id === s.id && weekDates.includes(a.date)).length;
+      totalWeekDays += days;
+      totalWeekSats += days * SATS;
+      if (days >= 5) perfectCount++;
+    });
+    const activeCount = activeStudents.filter(s => attendanceRaw.some(a => a.student_id === s.id && weekDates.includes(a.date))).length;
+    const weekAttRate = activeStudents.length > 0 ? Math.round((totalWeekDays / (activeStudents.length * 5)) * 100) : 0;
+
+    let staffWeekHours = 0;
+    let topStaff = null;
+    staffRaw.forEach(s => {
+      const hrs = staffAttRaw.filter(a => a.staff_id === s.id && weekDates.includes(a.date)).reduce((sum, a) => sum + parseFloat(a.hours || 0), 0);
+      staffWeekHours += hrs;
+      if (hrs > 0 && (!topStaff || hrs > topStaff.hours)) topStaff = { name: s.name, hours: hrs };
+    });
+    const staffWeekEarned = Math.round(staffWeekHours * STAFF_SATS_PER_HOUR);
+    const totalSpent = totalWeekSats + staffWeekEarned;
+
+    function esc(str) {
+      return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+
+    const shoutouts = [];
+    if (topStaff) shoutouts.push(`Top Staff: ${esc(topStaff.name)} (${topStaff.hours.toFixed(1)} hrs)`);
+    const shoutoutText = shoutouts.join("    \u2022    ");
+
+    const svg = `<svg width="1200" height="630" viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0A0A0F"/>
+      <stop offset="100%" stop-color="#16161F"/>
+    </linearGradient>
+    <linearGradient id="orangeGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#F7931A"/>
+      <stop offset="100%" stop-color="#E87D0D"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1200" height="630" fill="url(#bgGrad)"/>
+  <rect x="0" y="0" width="1200" height="8" fill="url(#orangeGrad)"/>
+
+  <text x="60" y="95" font-family="Arial, sans-serif" font-size="26" font-weight="800" fill="#F7931A" letter-spacing="4">BITCOIN EKASI</text>
+  <text x="60" y="150" font-family="Arial, sans-serif" font-size="52" font-weight="800" fill="#F0F0F8">Weekly Recap</text>
+  <text x="60" y="188" font-family="monospace" font-size="20" fill="#9090A8">${esc(weekLabel)}</text>
+
+  <rect x="60" y="230" width="330" height="160" rx="16" fill="#111118" stroke="#1C1C28" stroke-width="1"/>
+  <text x="225" y="315" font-family="Arial, sans-serif" font-size="56" font-weight="800" fill="#F7931A" text-anchor="middle">${activeCount}/${activeStudents.length}</text>
+  <text x="225" y="355" font-family="Arial, sans-serif" font-size="16" fill="#55556A" text-anchor="middle" letter-spacing="2">ATTENDED THIS WEEK</text>
+
+  <rect x="410" y="230" width="330" height="160" rx="16" fill="#111118" stroke="#1C1C28" stroke-width="1"/>
+  <text x="575" y="315" font-family="Arial, sans-serif" font-size="56" font-weight="800" fill="#F7931A" text-anchor="middle">${weekAttRate}%</text>
+  <text x="575" y="355" font-family="Arial, sans-serif" font-size="16" fill="#55556A" text-anchor="middle" letter-spacing="2">ATTENDANCE RATE</text>
+
+  <rect x="760" y="230" width="380" height="160" rx="16" fill="#111118" stroke="#1C1C28" stroke-width="1"/>
+  <text x="950" y="315" font-family="Arial, sans-serif" font-size="52" font-weight="800" fill="#F7931A" text-anchor="middle">\u26A1${totalSpent.toLocaleString()}</text>
+  <text x="950" y="355" font-family="Arial, sans-serif" font-size="16" fill="#55556A" text-anchor="middle" letter-spacing="2">SATS EARNED THIS WEEK</text>
+
+  <rect x="60" y="415" width="1080" height="90" rx="16" fill="rgba(16,185,129,0.06)" stroke="rgba(16,185,129,0.2)" stroke-width="1"/>
+  <text x="600" y="450" font-family="Arial, sans-serif" font-size="22" font-weight="700" fill="#10B981" text-anchor="middle">\uD83C\uDFC6 ${perfectCount} Perfect Attendance ${perfectCount === 1 ? "Student" : "Students"} This Week</text>
+  <text x="600" y="482" font-family="Arial, sans-serif" font-size="15" fill="#9090A8" text-anchor="middle">${shoutoutText ? esc(shoutoutText) : "Keep showing up \u2014 every day counts!"}</text>
+
+  <text x="60" y="580" font-family="Arial, sans-serif" font-size="16" fill="#55556A">Bitcoin Ekasi \u00B7 Mossel Bay, South Africa</text>
+  <text x="1140" y="580" font-family="Arial, sans-serif" font-size="16" fill="#F7931A" text-anchor="end" font-weight="700">\u26A1 Powered by Lightning</text>
+</svg>`;
+
+    res.setHeader("Content-Type", "image/svg+xml");
+    res.send(svg);
+  } catch (e) {
+    console.error("Weekly recap image error:", e.message);
+    res.status(500).send("Error generating image: " + e.message);
+  }
+});
+
+
 
 // ── Daily Summary Email (7pm SAST = 5pm UTC) ─────────────────
 async function sendDailySummary() {
