@@ -2,47 +2,50 @@ const express = require("express");
 const cors = require("cors");
 const fetch = require("node-fetch");
 const cron = require("node-cron");
-
+const nodemailer = require("nodemailer");
+ 
 const app = express();
 app.use(cors());
 app.use(express.json());
-
+ 
 const BLINK_URL = "https://api.blink.sv/graphql";
 const COMMUNITY_RECAP_WHATSAPP_NUMBER = process.env.COMMUNITY_RECAP_WHATSAPP_NUMBER;
 const COMMUNITY_RECAP_CALLMEBOT_APIKEY = process.env.COMMUNITY_RECAP_CALLMEBOT_APIKEY;
-const RESEND_API_KEY = process.env.RESEND_API_KEY;
+const GMAIL_USER = process.env.GMAIL_USER || "luthando@bitcoinekasi.com";
+const GMAIL_APP_PASSWORD = process.env.GMAIL_APP_PASSWORD;
 const ALERT_TO = ["luthando@bitcoinekasi.com"];
 const DAILY_SUMMARY_CC = ["sassa@bitcoinekasi.com"];
-const ALERT_FROM = "onboarding@resend.dev";
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-
-// ── Send email alert via Resend ──────────────────────────────
+ 
+// ── Send email alert via Gmail SMTP ──────────────────────────
+// Sends as GMAIL_USER's real mailbox (an app password, not the account
+// password — see Google Account → Security → App Passwords). Unlike
+// Resend's shared onboarding@resend.dev sandbox sender, a real mailbox
+// can email any recipient, so `cc` works for anyone.
+const mailTransporter = GMAIL_APP_PASSWORD
+  ? nodemailer.createTransport({
+      service: "gmail",
+      auth: { user: GMAIL_USER, pass: GMAIL_APP_PASSWORD }
+    })
+  : null;
+ 
 async function sendAlert(subject, body, cc) {
-  if (!RESEND_API_KEY) { console.log("No RESEND_API_KEY — skipping alert"); return; }
+  if (!mailTransporter) { console.log("No GMAIL_APP_PASSWORD — skipping alert"); return; }
   try {
-    const payload = {
-      from: ALERT_FROM,
-      to: ALERT_TO,
+    const mailOptions = {
+      from: `"Bitcoin Ekasi" <${GMAIL_USER}>`,
+      to: ALERT_TO.join(","),
       subject: subject,
       html: body
     };
-    if (cc && cc.length) payload.cc = cc;
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        "Authorization": "Bearer " + RESEND_API_KEY,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(payload)
-    });
-    const data = await res.json();
-    if (!res.ok) console.error("Resend error:", JSON.stringify(data));
-    else console.log("Alert sent:", subject);
+    if (cc && cc.length) mailOptions.cc = cc.join(",");
+    await mailTransporter.sendMail(mailOptions);
+    console.log("Alert sent:", subject);
   } catch(e) {
     console.error("Alert failed:", e.message);
   }
 }
-
+ 
 // ── Send WhatsApp payment notification via CallMeBot ─────────
 async function sendWhatsAppPayment(whatsappNumber, apikey, staffName, amount) {
   if (!whatsappNumber || !apikey) {
@@ -61,7 +64,7 @@ async function sendWhatsAppPayment(whatsappNumber, apikey, staffName, amount) {
     console.error("WhatsApp send failed:", e.message);
   }
 }
-
+ 
 // ── Send Telegram payment notification ────────────────────────
 async function sendTelegramPayment(chatId, staffName, amount) {
   if (!chatId || !TELEGRAM_BOT_TOKEN) {
@@ -83,7 +86,7 @@ async function sendTelegramPayment(chatId, staffName, amount) {
     console.error("Telegram send failed:", e.message);
   }
 }
-
+ 
 function payFailEmail(recipientName, recipientType, amount, errorMsg) {
   const now = new Date().toLocaleString("en-ZA", { timeZone: "Africa/Johannesburg" });
   const subject = "Bitcoin Ekasi - Payment Failed: " + recipientName;
@@ -107,11 +110,11 @@ function payFailEmail(recipientName, recipientType, amount, errorMsg) {
   ].join("");
   return sendAlert(subject, html);
 }
-
+ 
 // ── Supabase config ──
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_KEY;
-
+ 
 if (!SUPABASE_URL || !SUPABASE_KEY) {
   console.error("Missing SUPABASE_URL or SUPABASE_KEY environment variables — backend cannot start.");
   process.exit(1);
@@ -130,7 +133,7 @@ async function supabase(method, table, body = null, params = '') {
   if (!res.ok) throw new Error(text);
   return text ? JSON.parse(text) : [];
 }
-
+ 
 // ── Safe JSON fetch helper (catches HTML error pages) ──
 async function safeFetch(url, options = {}) {
   const res = await fetch(url, options);
@@ -144,7 +147,7 @@ async function safeFetch(url, options = {}) {
     throw new Error(`Invalid JSON response: ${text.slice(0, 100)}`);
   }
 }
-
+ 
 // ── LNURL bech32 decoder (no external library needed) ──
 function decodeLnurl(lnurl) {
   const CHARSET = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
@@ -170,9 +173,9 @@ function decodeLnurl(lnurl) {
   }
   return Buffer.from(bytes).toString('utf8');
 }
-
+ 
 app.get("/", (req, res) => res.json({ status: "Bitcoin Ekasi Backend Running ⚡" }));
-
+ 
 // ── Supabase proxy endpoints ──
 app.get("/db/:table", async (req, res) => {
   try {
@@ -181,14 +184,14 @@ app.get("/db/:table", async (req, res) => {
     res.json(data);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-
+ 
 app.post("/db/:table", async (req, res) => {
   try {
     const data = await supabase('POST', req.params.table, req.body);
     res.json(data);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-
+ 
 app.patch("/db/:table", async (req, res) => {
   try {
     const params = req.url.replace(`/db/${req.params.table}`, '') || '';
@@ -196,7 +199,7 @@ app.patch("/db/:table", async (req, res) => {
     res.json(data);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-
+ 
 app.delete("/db/:table", async (req, res) => {
   try {
     const params = req.url.replace(`/db/${req.params.table}`, '') || '';
@@ -204,17 +207,17 @@ app.delete("/db/:table", async (req, res) => {
     res.json({ success: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-
+ 
 // ═══════════════════════════════════════════════════════════════
 // PUBLIC ALUMNI ENDPOINT — new self-contained addition to server.js
 // Only exposes safe, public info — no Lightning addresses, no payments.
 // ═══════════════════════════════════════════════════════════════
-
+ 
 app.get("/alumni", async (req, res) => {
   try {
     const studentsRaw = await supabase("GET", "students", null, "?status=eq.alumni&order=graduated_at.desc");
     const attendanceRaw = await supabase("GET", "attendance", null, "");
-
+ 
     const SATS = 500;
     const alumni = studentsRaw.map(s => {
       const days = attendanceRaw.filter(a => a.student_id === s.id).length;
@@ -226,15 +229,15 @@ app.get("/alumni", async (req, res) => {
         totalSats: days * SATS + (s.bonus || 0)
       };
     });
-
+ 
     res.json({ count: alumni.length, alumni });
   } catch (e) {
     console.error("Public alumni fetch error:", e.message);
     res.status(500).json({ error: e.message });
   }
 });
-
-
+ 
+ 
 // ── Blink test ──
 app.post("/test", async (req, res) => {
   const { apiKey } = req.body;
@@ -252,19 +255,19 @@ app.post("/test", async (req, res) => {
     res.json({ success: true, balance: btc.balance, walletId: btc.id });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-
+ 
 // ── Blink pay ──
 app.post("/pay", async (req, res) => {
   const { apiKey, destination, amount, memo, staffName, whatsappNumber, callmebotApikey, telegramChatId } = req.body;
   if (!apiKey || !destination || !amount) {
     return res.status(400).json({ error: "Missing fields" });
   }
-
+ 
   // Default memo if none provided
   const paymentMemo = memo || "Bitcoin Ekasi - Mossel Bay";
-
+ 
   console.log(`Pay request: destination=${destination.slice(0,30)}... amount=${amount} memo="${paymentMemo}"`);
-
+ 
   try {
     // Get BTC wallet ID
     const meRes = await safeFetch(BLINK_URL, {
@@ -276,11 +279,11 @@ app.post("/pay", async (req, res) => {
     const wallets = meRes.data?.data?.me?.defaultAccount?.wallets || [];
     const btcWallet = wallets.find(w => w.walletCurrency === "BTC");
     if (!btcWallet) return res.status(400).json({ error: "No BTC wallet found" });
-
+ 
     const dest = destination.trim();
     const isLnAddress = dest.includes("@");
     const isLnurl = dest.toLowerCase().startsWith("lnurl");
-
+ 
     // ── Lightning Address ──────────────────────────────────────────────────
     if (isLnAddress) {
       console.log("Paying via Lightning Address:", dest);
@@ -317,15 +320,15 @@ app.post("/pay", async (req, res) => {
       await payFailEmail(destination, "Lightning Address", parseInt(amount), errMsg).catch(() => {});
       return res.status(400).json({ error: errMsg });
     }
-
+ 
     // ── LNURL / Bolt Card ─────────────────────────────────────────────────
     if (isLnurl) {
       console.log("Paying via LNURL (Bolt Card)");
-
+ 
       // Step 1: decode LNURL → callback URL
       const callbackUrl = decodeLnurl(dest);
       console.log("LNURL decoded to:", callbackUrl);
-
+ 
       // Step 2: fetch LNURL-pay params
       const lnurlRes = await safeFetch(callbackUrl);
       if (lnurlRes.data.status === "ERROR") {
@@ -335,15 +338,15 @@ app.post("/pay", async (req, res) => {
       const amountMsat = parseInt(amount) * 1000;
       const minSat = Math.ceil(minSendable / 1000);
       const maxSat = Math.floor(maxSendable / 1000);
-
+ 
       console.log(`LNURL range: ${minSat}–${maxSat} sats, requesting: ${amount} sats`);
-
+ 
       if (parseInt(amount) < minSat || parseInt(amount) > maxSat) {
         return res.status(400).json({
           error: `Amount ${amount} sats out of allowed range (${minSat}–${maxSat} sats)`
         });
       }
-
+ 
       // Step 3: fetch invoice from LNURL callback — include memo as comment
       const encodedMemo = encodeURIComponent(paymentMemo);
       const invoiceUrl = `${callback}${callback.includes("?") ? "&" : "?"}amount=${amountMsat}&comment=${encodedMemo}`;
@@ -356,7 +359,7 @@ app.post("/pay", async (req, res) => {
         return res.status(400).json({ error: "No invoice received from Bolt Card" });
       }
       console.log("Got invoice, paying via Blink...");
-
+ 
       // Step 4: pay the invoice via Blink — include memo
       const { data: payData } = await safeFetch(BLINK_URL, {
         method: "POST",
@@ -390,9 +393,9 @@ app.post("/pay", async (req, res) => {
       await payFailEmail(destination, "Bolt Card / LNURL", parseInt(amount), boltErrMsg).catch(() => {});
       return res.status(400).json({ error: boltErrMsg });
     }
-
+ 
     return res.status(400).json({ error: "Unknown destination format. Use Lightning Address (name@domain) or LNURL." });
-
+ 
   } catch (e) {
     console.error("Pay error:", e.message);
     await payFailEmail(destination, "Lightning Payment", parseInt(amount) || 0, e.message).catch(() => {});
@@ -403,14 +406,14 @@ app.post("/pay", async (req, res) => {
 // WEEKLY RECAP SHAREABLE IMAGE — new self-contained addition to server.js
 // Does NOT touch any existing function. Monday–Friday week.
 // ═══════════════════════════════════════════════════════════════
-
+ 
 app.get("/weekly-recap.svg", async (req, res) => {
   try {
     const studentsRaw = await supabase("GET", "students", null, "?order=created_at.asc");
     const attendanceRaw = await supabase("GET", "attendance", null, "?order=date.desc");
     const staffRaw = await supabase("GET", "staff", null, "");
     const staffAttRaw = await supabase("GET", "staff_attendance", null, "");
-
+ 
     const todayFmt = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Johannesburg", year: "numeric", month: "2-digit", day: "2-digit" });
     const today = todayFmt.format(new Date());
     const todayDate = new Date(today + "T00:00:00Z");
@@ -424,16 +427,16 @@ app.get("/weekly-recap.svg", async (req, res) => {
       d.setUTCDate(d.getUTCDate() + i);
       weekDates.push(d.toISOString().split("T")[0]);
     }
-
+ 
     const weekLabelStart = new Date(weekDates[0] + "T00:00:00Z");
     const weekLabelEnd = new Date(weekDates[4] + "T00:00:00Z");
     const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
     const weekLabel = weekLabelStart.getUTCDate() + " " + monthNames[weekLabelStart.getUTCMonth()] + " \u2013 " + weekLabelEnd.getUTCDate() + " " + monthNames[weekLabelEnd.getUTCMonth()] + " " + weekLabelEnd.getUTCFullYear();
-
+ 
     const SATS = 500;
     const STAFF_SATS_PER_HOUR = 1300;
     const activeStudents = studentsRaw.filter(s => !s.status || s.status === "active");
-
+ 
     let totalWeekDays = 0;
     let totalWeekSats = 0;
     let perfectCount = 0;
@@ -446,7 +449,7 @@ app.get("/weekly-recap.svg", async (req, res) => {
     });
     const activeCount = activeStudents.filter(s => attendanceRaw.some(a => a.student_id === s.id && weekDates.includes(a.date))).length;
     const weekAttRate = activeStudents.length > 0 ? Math.round((totalWeekDays / (activeStudents.length * 5)) * 100) : 0;
-
+ 
     let staffWeekHours = 0;
     let topStaff = null;
     staffRaw.forEach(s => {
@@ -456,15 +459,15 @@ app.get("/weekly-recap.svg", async (req, res) => {
     });
     const staffWeekEarned = Math.round(staffWeekHours * STAFF_SATS_PER_HOUR);
     const totalSpent = totalWeekSats + staffWeekEarned;
-
+ 
     function esc(str) {
       return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     }
-
+ 
     const shoutouts = [];
     if (topStaff) shoutouts.push(`Top Staff: ${esc(topStaff.name)} (${topStaff.hours.toFixed(1)} hrs)`);
     const shoutoutText = shoutouts.join("    \u2022    ");
-
+ 
     const svg = `<svg width="1200" height="630" viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -476,34 +479,34 @@ app.get("/weekly-recap.svg", async (req, res) => {
       <stop offset="100%" stop-color="#E87D0D"/>
     </linearGradient>
   </defs>
-
+ 
   <rect width="1200" height="630" fill="url(#bgGrad)"/>
   <rect x="0" y="0" width="1200" height="8" fill="url(#orangeGrad)"/>
-
+ 
   <text x="60" y="95" font-family="Arial, sans-serif" font-size="26" font-weight="800" fill="#F7931A" letter-spacing="4">BITCOIN EKASI</text>
   <text x="60" y="150" font-family="Arial, sans-serif" font-size="52" font-weight="800" fill="#F0F0F8">Weekly Recap</text>
   <text x="60" y="188" font-family="monospace" font-size="20" fill="#9090A8">${esc(weekLabel)}</text>
-
+ 
   <rect x="60" y="230" width="330" height="160" rx="16" fill="#111118" stroke="#1C1C28" stroke-width="1"/>
   <text x="225" y="315" font-family="Arial, sans-serif" font-size="56" font-weight="800" fill="#F7931A" text-anchor="middle">${activeCount}/${activeStudents.length}</text>
   <text x="225" y="355" font-family="Arial, sans-serif" font-size="16" fill="#55556A" text-anchor="middle" letter-spacing="2">ATTENDED THIS WEEK</text>
-
+ 
   <rect x="410" y="230" width="330" height="160" rx="16" fill="#111118" stroke="#1C1C28" stroke-width="1"/>
   <text x="575" y="315" font-family="Arial, sans-serif" font-size="56" font-weight="800" fill="#F7931A" text-anchor="middle">${weekAttRate}%</text>
   <text x="575" y="355" font-family="Arial, sans-serif" font-size="16" fill="#55556A" text-anchor="middle" letter-spacing="2">ATTENDANCE RATE</text>
-
+ 
   <rect x="760" y="230" width="380" height="160" rx="16" fill="#111118" stroke="#1C1C28" stroke-width="1"/>
   <text x="950" y="315" font-family="Arial, sans-serif" font-size="52" font-weight="800" fill="#F7931A" text-anchor="middle">\u26A1${totalSpent.toLocaleString()}</text>
   <text x="950" y="355" font-family="Arial, sans-serif" font-size="16" fill="#55556A" text-anchor="middle" letter-spacing="2">SATS EARNED THIS WEEK</text>
-
+ 
   <rect x="60" y="415" width="1080" height="90" rx="16" fill="rgba(16,185,129,0.06)" stroke="rgba(16,185,129,0.2)" stroke-width="1"/>
   <text x="600" y="450" font-family="Arial, sans-serif" font-size="22" font-weight="700" fill="#10B981" text-anchor="middle">\uD83C\uDFC6 ${perfectCount} Perfect Attendance ${perfectCount === 1 ? "Student" : "Students"} This Week</text>
   <text x="600" y="482" font-family="Arial, sans-serif" font-size="15" fill="#9090A8" text-anchor="middle">${shoutoutText ? esc(shoutoutText) : "Keep showing up \u2014 every day counts!"}</text>
-
+ 
   <text x="60" y="580" font-family="Arial, sans-serif" font-size="16" fill="#55556A">Bitcoin Ekasi \u00B7 Mossel Bay, South Africa</text>
   <text x="1140" y="580" font-family="Arial, sans-serif" font-size="16" fill="#F7931A" text-anchor="end" font-weight="700">\u26A1 Powered by Lightning</text>
 </svg>`;
-
+ 
     res.setHeader("Content-Type", "image/svg+xml");
     res.send(svg);
   } catch (e) {
@@ -511,9 +514,9 @@ app.get("/weekly-recap.svg", async (req, res) => {
     res.status(500).send("Error generating image: " + e.message);
   }
 });
-
-
-
+ 
+ 
+ 
 // ── Daily Summary Email (7pm SAST = 5pm UTC) ─────────────────
 async function sendDailySummary() {
   console.log("Sending daily summary email...");
@@ -530,50 +533,50 @@ async function sendDailySummary() {
     const pgExcusesRaw = await supabase("GET", "postgrad_excuses", null, "");
     const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Johannesburg", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
     const todayFormatted = new Date().toLocaleDateString("en-ZA", { timeZone: "Africa/Johannesburg", weekday: "long", year: "numeric", month: "long", day: "numeric" });
-
+ 
     // Today's attendance
     const todayAtt = attendanceRaw.filter(a => a.date === today);
     const activeStudents = studentsRaw.filter(s => !s.status || s.status === "active");
     const presentIds = new Set(todayAtt.map(a => a.student_id));
     const presentStudents = activeStudents.filter(s => presentIds.has(s.id));
     const absentStudents = activeStudents.filter(s => !presentIds.has(s.id));
-
+ 
     // Today's excuses
     const todayExcuses = excusesRaw.filter(e => e.date === today);
     const excusedIds = new Set(todayExcuses.map(e => e.student_id));
-
+ 
     // Staff hours today
     const todayStaffAtt = staffAttRaw.filter(a => a.date === today);
     const todayPGAtt = pgAttendanceRaw.filter(a => a.date === today);
     const pgPresentIds = new Set(todayPGAtt.map(a => a.student_id));
     const pgPresentCount = pgStudentsRaw.filter(s => pgPresentIds.has(s.id)).length;
-
+ 
     // Sats owed
     const SATS = 500;
     const STAFF_SATS_PER_HOUR = 1300;
     const SHACK_SATS = 28000;
-
+ 
     let studentOwed = 0;
     activeStudents.forEach(s => {
       const attDays = attendanceRaw.filter(a => a.student_id === s.id).length;
       const earned = attDays * SATS + (s.bonus || 0);
       studentOwed += Math.max(0, earned - (s.paid || 0));
     });
-
+ 
     let staffOwed = 0;
     staffRaw.forEach(s => {
       const hours = staffAttRaw.filter(a => a.staff_id === s.id).reduce((sum, a) => sum + parseFloat(a.hours || 0), 0);
       const earned = Math.round(hours * STAFF_SATS_PER_HOUR);
       staffOwed += Math.max(0, earned - (s.paid || 0));
     });
-
+ 
     const attRate = activeStudents.length > 0 ? Math.round((presentStudents.length / activeStudents.length) * 100) : 0;
-
+ 
     // Build HTML email
     const presentRows = presentStudents.map(s =>
       '<tr><td style="padding:8px 12px;border-bottom:1px solid #1C1C28;color:#F7931A;font-weight:600">' + s.name + '</td><td style="padding:8px 12px;border-bottom:1px solid #1C1C28;text-align:right;color:#10B981">&#10003; Present</td></tr>'
     ).join("");
-
+ 
     const absentRows = absentStudents.map(s => {
       const excuse = todayExcuses.find(e => e.student_id === s.id);
       const status = excuse ? '<span style="color:#60A5FA">' + excuse.reason.split(" ")[0] + " " + excuse.reason.split(" ")[1] + "</span>" : '<span style="color:#F87171">&#10007; Absent</span>';
@@ -593,15 +596,15 @@ async function sendDailySummary() {
       }
       return '<tr><td style="padding:8px 12px;border-bottom:1px solid #1C1C28;color:#C084FC;font-weight:600">' + s.name + '</td><td style="padding:8px 12px;border-bottom:1px solid #1C1C28;text-align:right">' + statusHtml + '</td></tr>';
     }).join("") : '<tr><td colspan="2" style="padding:12px;color:#55556A;text-align:center">No postgrad students enrolled</td></tr>';
-
+ 
     const staffRows = todayStaffAtt.length > 0 ? todayStaffAtt.map(a => {
       const staff = staffRaw.find(s => s.id === a.staff_id);
       return '<tr><td style="padding:8px 12px;border-bottom:1px solid #1C1C28;color:#6366F1;font-weight:600">' + (staff ? staff.name : "Unknown") + '</td><td style="padding:8px 12px;border-bottom:1px solid #1C1C28;text-align:right;color:#F0F0F8">' + a.hours + ' hrs</td></tr>';
     }).join("") : '<tr><td colspan="2" style="padding:12px;color:#55556A;text-align:center">No hours logged today</td></tr>';
-
+ 
     const html = [
       // Stats strip
-
+ 
       // Stats strip
       '<div style="display:flex;border-bottom:1px solid #1C1C28">',
       '<div style="flex:1;padding:18px;text-align:center;border-right:1px solid #1C1C28">',
@@ -617,7 +620,7 @@ async function sendDailySummary() {
       '<div style="font-size:10px;color:#55556A;text-transform:uppercase;letter-spacing:1px;margin-top:4px">Sats Owed</div>',
       '</div>',
       '</div>',
-
+ 
       // Attendance table
       '<div style="padding:20px 24px">',
       '<div style="font-size:11px;font-weight:700;color:#9090A8;letter-spacing:2px;text-transform:uppercase;margin-bottom:10px">Today&#39;s Attendance</div>',
@@ -626,7 +629,7 @@ async function sendDailySummary() {
       absentRows,
       '</table>',
       '</div>',
-
+ 
       // Staff table
       '<div style="padding:0 24px 20px">',
       '<div style="font-size:11px;font-weight:700;color:#9090A8;letter-spacing:2px;text-transform:uppercase;margin-bottom:10px">Staff Hours Today</div>',
@@ -640,16 +643,16 @@ async function sendDailySummary() {
       pgRows,
       '</table>',
       '</div>',
-
+ 
       // Footer
       '<div style="padding:16px 24px;border-top:1px solid #1C1C28;text-align:center">',
       '<a href="https://luthandosabtc.github.io/bitcoinekasi/" style="display:inline-block;background:#F7931A;color:#000;padding:12px 28px;border-radius:8px;font-weight:700;text-decoration:none;font-size:13px">Open Bitcoin Ekasi App</a>',
       '<div style="font-size:11px;color:#55556A;margin-top:14px">Bitcoin Ekasi · Mossel Bay · Powered by Lightning &#9889;</div>',
       '</div>',
-
+ 
       '</div>'
     ].join("");
-
+ 
     await sendAlert("Bitcoin Ekasi Daily Summary — " + todayFormatted, html, DAILY_SUMMARY_CC);
     console.log("Daily summary sent successfully");
   } catch(e) {
@@ -657,24 +660,24 @@ async function sendDailySummary() {
     await sendAlert("Bitcoin Ekasi — Daily Summary Failed", "<p>Could not generate daily summary: " + e.message + "</p>", DAILY_SUMMARY_CC);
   }
 }
-
+ 
 // Schedule: Monday–Friday at 5pm UTC (7pm SAST) — class days only
 cron.schedule("0 17 * * 1-5", () => {
   console.log("Running daily summary cron job...");
   sendDailySummary();
 }, { timezone: "UTC" });
-
+ 
 cron.schedule("15 17 * * 5", () => {
   console.log("Running WhatsApp community recap...");
   postWeeklyRecapToWhatsApp();
 }, { timezone: "UTC" });
-
+ 
 // Test endpoint to trigger summary manually
 app.get("/send-summary", async (req, res) => {
   await sendDailySummary();
   res.json({ success: true, message: "Daily summary sent" });
 });
-
+ 
 app.get("/post-weekly-whatsapp", async (req, res) => {
   await postWeeklyRecapToWhatsApp();
   res.json({ success: true, message: "Community recap sent to your WhatsApp — check your phone to forward it" });
@@ -690,7 +693,7 @@ async function postWeeklyRecapToWhatsApp() {
     const attendanceRaw = await supabase("GET", "attendance", null, "?order=date.desc");
     const staffRaw = await supabase("GET", "staff", null, "");
     const staffAttRaw = await supabase("GET", "staff_attendance", null, "");
-
+ 
     const todayFmt = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Johannesburg", year: "numeric", month: "2-digit", day: "2-digit" });
     const today = todayFmt.format(new Date());
     const todayDate = new Date(today + "T00:00:00Z");
@@ -704,16 +707,16 @@ async function postWeeklyRecapToWhatsApp() {
       d.setUTCDate(d.getUTCDate() + i);
       weekDates.push(d.toISOString().split("T")[0]);
     }
-
+ 
     const weekLabelStart = new Date(weekDates[0] + "T00:00:00Z");
     const weekLabelEnd = new Date(weekDates[4] + "T00:00:00Z");
     const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
     const weekLabel = weekLabelStart.getUTCDate() + " " + monthNames[weekLabelStart.getUTCMonth()] + "–" + weekLabelEnd.getUTCDate() + " " + monthNames[weekLabelEnd.getUTCMonth()] + " " + weekLabelEnd.getUTCFullYear();
-
+ 
     const SATS = 500;
     const STAFF_SATS_PER_HOUR = 1300;
     const activeStudents = studentsRaw.filter(s => !s.status || s.status === "active");
-
+ 
     let totalWeekDays = 0;
     let totalWeekSats = 0;
     let perfectCount = 0;
@@ -728,10 +731,10 @@ async function postWeeklyRecapToWhatsApp() {
       studentEarnings.push({ name: s.name, days, sats });
     });
     studentEarnings.sort((a, b) => b.sats - a.sats);
-
+ 
     const activeCount = activeStudents.filter(s => attendanceRaw.some(a => a.student_id === s.id && weekDates.includes(a.date))).length;
     const weekAttRate = activeStudents.length > 0 ? Math.round((totalWeekDays / (activeStudents.length * 4)) * 100) : 0;
-
+ 
     let staffWeekHours = 0;
     const staffEarnings = [];
     staffRaw.forEach(s => {
@@ -742,36 +745,36 @@ async function postWeeklyRecapToWhatsApp() {
     staffEarnings.sort((a, b) => b.sats - a.sats);
     const staffWeekEarned = Math.round(staffWeekHours * STAFF_SATS_PER_HOUR);
     const totalSpent = totalWeekSats + staffWeekEarned;
-
+ 
     const staffEarningsLines = staffEarnings
       .filter(s => s.hours > 0)
       .map(s => s.name + " — " + s.hours.toFixed(1) + "h — ⚡" + s.sats.toLocaleString())
       .join("\n") || "No staff hours logged this week";
-
+ 
     const perfectBlock = perfectNames.length > 0
       ? "🏆 Perfect attendance: " + perfectNames.join(", ") + "\n\n"
       : "\n";
-
+ 
     const earningsLines = studentEarnings
       .map(s => s.name + " — " + s.days + (s.days === 1 ? " day" : " days") + " — ⚡" + s.sats.toLocaleString())
       .join("\n");
-
+ 
     const message =
 `⚡ *Bitcoin Ekasi Weekly Recap*
 ${weekLabel}
-
+ 
 👥 ${activeCount}/${activeStudents.length} students attended
 📊 ${weekAttRate}% attendance rate
 ${perfectBlock}📋 *This Week's Earnings:*
 ${earningsLines}
-
+ 
 👩‍🏫 *Teaching Team:*
 ${staffEarningsLines}
-
+ 
 ⚡ ${totalSpent.toLocaleString()} sats paid out this week
-
+ 
 _Forward this to the community group 👇_`;
-
+ 
     const cleanNumber = COMMUNITY_RECAP_WHATSAPP_NUMBER.replace(/[\s+]/g, "");
     const url = `https://api.callmebot.com/whatsapp.php?phone=${cleanNumber}&text=${encodeURIComponent(message)}&apikey=${COMMUNITY_RECAP_CALLMEBOT_APIKEY}`;
     const res = await fetch(url);
@@ -782,7 +785,7 @@ _Forward this to the community group 👇_`;
     console.error("Community recap failed:", e.message);
   }
 }
-
+ 
 cron.schedule("15 17 * * 5", () => {
   console.log("Running WhatsApp community recap...");
   postWeeklyRecapToWhatsApp();
@@ -834,24 +837,24 @@ app.post("/send-stakeholder-update", async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 });
-
+ 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => console.log(`Ekasi backend running on port ${PORT}`));
-
+ 
 // ═══════════════════════════════════════════════════════════════
 // WEEKLY STAFF BONUS — new self-contained addition to server.js
 // Does NOT touch any existing function. Grants 1,300 sats bonus
 // to whoever logs the most hours each week (Tue-Fri).
 // ═══════════════════════════════════════════════════════════════
-
+ 
 const STAFF_BONUS_SATS = 1300;
-
+ 
 async function grantWeeklyStaffBonus() {
   console.log("Checking weekly staff bonus...");
   try {
     const staffRaw = await supabase("GET", "staff", null, "");
     const staffAttRaw = await supabase("GET", "staff_attendance", null, "");
-
+ 
     const todayFmt = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Johannesburg", year: "numeric", month: "2-digit", day: "2-digit" });
     const today = todayFmt.format(new Date());
     const todayDate = new Date(today + "T00:00:00Z");
@@ -865,32 +868,32 @@ async function grantWeeklyStaffBonus() {
       d.setUTCDate(d.getUTCDate() + i);
       weekDates.push(d.toISOString().split("T")[0]);
     }
-
+ 
     if (!staffRaw.length) {
       console.log("No staff members found — skipping bonus check");
       return;
     }
-
+ 
     const staffHours = staffRaw.map(s => {
       const hours = staffAttRaw.filter(a => a.staff_id === s.id && weekDates.includes(a.date)).reduce((sum, a) => sum + parseFloat(a.hours || 0), 0);
       return { id: s.id, name: s.name, hours, whatsappNumber: s.whatsapp_number, callmebotApikey: s.callmebot_apikey, telegramChatId: s.telegram_chat_id, currentBonus: s.bonus || 0 };
     });
-
+ 
     const maxHours = Math.max(...staffHours.map(s => s.hours));
     if (maxHours <= 0) {
       console.log("No staff hours logged this week — skipping bonus");
       return;
     }
-
+ 
     const winners = staffHours.filter(s => s.hours === maxHours);
-
+ 
     for (const winner of winners) {
       const newBonus = winner.currentBonus + STAFF_BONUS_SATS;
       await supabase("PATCH", "staff", { bonus: newBonus }, "?id=eq." + winner.id);
       console.log("Bonus granted:", winner.name, "-", winner.hours, "hrs -", "+" + STAFF_BONUS_SATS, "sats");
-
+ 
       const congratsMessage = `\uD83C\uDFC6 Congratulations ${winner.name}! You logged the most hours this week (${winner.hours.toFixed(1)} hrs) and earned a \u26A1${STAFF_BONUS_SATS.toLocaleString()} sat bonus on top of your regular pay. Thank you for your dedication to Bitcoin Ekasi! \uD83C\uDF89`;
-
+ 
       if (winner.whatsappNumber && winner.callmebotApikey) {
         try {
           const cleanNumber = winner.whatsappNumber.replace(/[\s+]/g, "");
@@ -901,7 +904,7 @@ async function grantWeeklyStaffBonus() {
           console.error("Bonus WhatsApp notification failed for", winner.name, ":", e.message);
         }
       }
-
+ 
       if (winner.telegramChatId && TELEGRAM_BOT_TOKEN) {
         try {
           const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
@@ -916,25 +919,25 @@ async function grantWeeklyStaffBonus() {
         }
       }
     }
-
+ 
     console.log("Weekly staff bonus complete. Winner(s):", winners.map(w => w.name).join(", "));
   } catch (e) {
     console.error("Weekly staff bonus failed:", e.message);
   }
 }
-
+ 
 // Schedule: Fridays, alongside the other weekly jobs
 cron.schedule("20 17 * * 5", () => {
   console.log("Running weekly staff bonus check...");
   grantWeeklyStaffBonus();
 }, { timezone: "UTC" });
-
+ 
 // Manual test endpoint
 app.get("/grant-staff-bonus", async (req, res) => {
   await grantWeeklyStaffBonus();
   res.json({ success: true, message: "Staff bonus check triggered — check logs for the winner" });
 });
-
+ 
 // ── Weekly Summary Email (Fridays, 7pm SAST = 5pm UTC) ────────
 async function sendWeeklySummary() {
   console.log("Sending weekly summary email...");
@@ -943,7 +946,7 @@ async function sendWeeklySummary() {
     const attendanceRaw = await supabase("GET", "attendance", null, "?order=date.desc");
     const staffRaw = await supabase("GET", "staff", null, "");
     const staffAttRaw = await supabase("GET", "staff_attendance", null, "");
-
+ 
     const todayFmt = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Johannesburg", year: "numeric", month: "2-digit", day: "2-digit" });
     const today = todayFmt.format(new Date());
     const todayDate = new Date(today + "T00:00:00Z");
@@ -957,7 +960,7 @@ async function sendWeeklySummary() {
       d.setUTCDate(d.getUTCDate() + i);
       weekDates.push(d.toISOString().split("T")[0]);
     }
-
+ 
     // Last week's dates, for comparison (most-improved calculation)
     const lastMon = new Date(mon);
     lastMon.setUTCDate(lastMon.getUTCDate() - 7);
@@ -967,18 +970,18 @@ async function sendWeeklySummary() {
     d.setUTCDate(d.getUTCDate() + i);
     lastWeekDates.push(d.toISOString().split("T")[0]);
     }
-
-
+ 
+ 
     const weekLabelStart = new Date(weekDates[0] + "T00:00:00Z");
     const weekLabelEnd = new Date(weekDates[4] + "T00:00:00Z");
     const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
     const weekLabel = weekLabelStart.getUTCDate() + " " + monthNames[weekLabelStart.getUTCMonth()] + " – " + weekLabelEnd.getUTCDate() + " " + monthNames[weekLabelEnd.getUTCMonth()] + " " + weekLabelEnd.getUTCFullYear();
-
+ 
     const SATS = 500;
     const STAFF_SATS_PER_HOUR = 1300;
-
+ 
     const activeStudents = studentsRaw.filter(s => !s.status || s.status === "active");
-
+ 
     let totalWeekDays = 0;
     let totalWeekSats = 0;
     const perfectStudents = [];
@@ -989,20 +992,20 @@ async function sendWeeklySummary() {
       totalWeekDays += days;
       totalWeekSats += days * SATS;
       if (days >= 4) perfectStudents.push(s.name);
-
+ 
       const lastWeekAtt = attendanceRaw.filter(a => a.student_id === s.id && lastWeekDates.includes(a.date));
       const lastWeekDays = lastWeekAtt.length;
       const improvement = days - lastWeekDays;
       if (improvement > 0 && (!mostImproved || improvement > mostImproved.improvement)) {
         mostImproved = { name: s.name, improvement, daysThisWeek: days, daysLastWeek: lastWeekDays };
       }
-
+ 
       return { name: s.name, days };
     });
     const activeCount = studentRows.filter(s => s.days > 0).length;
     const avgDays = activeStudents.length > 0 ? (totalWeekDays / activeStudents.length).toFixed(1) : "0";
     const weekAttRate = activeStudents.length > 0 ? Math.round((totalWeekDays / (activeStudents.length * 4)) * 100) : 0;
-
+ 
     let staffWeekHours = 0;
     let topStaff = null; // { name, hours }
     staffRaw.forEach(s => {
@@ -1013,7 +1016,7 @@ async function sendWeeklySummary() {
       }
     });
     const staffWeekEarned = Math.round(staffWeekHours * STAFF_SATS_PER_HOUR);
-
+ 
     let totalOwed = 0;
     activeStudents.forEach(s => {
       const attDays = attendanceRaw.filter(a => a.student_id === s.id).length;
@@ -1025,11 +1028,11 @@ async function sendWeeklySummary() {
       const earned = Math.round(hours * STAFF_SATS_PER_HOUR);
       totalOwed += Math.max(0, earned - (s.paid || 0));
     });
-
+ 
     const perfectListHtml = perfectStudents.length > 0
       ? perfectStudents.map(n => '<span style="display:inline-block;background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.25);border-radius:100px;padding:4px 12px;font-size:11px;font-weight:600;color:#10B981;margin:3px">&#10003; ' + n + '</span>').join("")
       : '<span style="color:#55556A;font-size:12px">No perfect attendance this week</span>';
-
+ 
     const shoutoutsHtml = [];
     if (mostImproved) {
       shoutoutsHtml.push(
@@ -1049,7 +1052,7 @@ async function sendWeeklySummary() {
         '</div>'
       );
     }
-
+ 
     const html = [
       '<div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;background:#0A0A0F;color:#F0F0F8;border-radius:16px;overflow:hidden">',
       '<div style="background:linear-gradient(135deg,#F7931A,#E87D0D);padding:28px 24px;text-align:center">',
@@ -1057,7 +1060,7 @@ async function sendWeeklySummary() {
       '<div style="font-size:22px;font-weight:800;color:#000">Bitcoin Ekasi</div>',
       '<div style="font-size:14px;color:rgba(0,0,0,0.7);margin-top:4px">Weekly Summary — ' + weekLabel + '</div>',
       '</div>',
-
+ 
       '<div style="display:flex;border-bottom:1px solid #1C1C28">',
       '<div style="flex:1;padding:18px;text-align:center;border-right:1px solid #1C1C28">',
       '<div style="font-size:26px;font-weight:800;color:#F7931A;font-family:monospace">' + activeCount + '/' + activeStudents.length + '</div>',
@@ -1072,14 +1075,14 @@ async function sendWeeklySummary() {
       '<div style="font-size:10px;color:#55556A;text-transform:uppercase;letter-spacing:1px;margin-top:4px">Avg Days/Student</div>',
       '</div>',
       '</div>',
-
+ 
       shoutoutsHtml.length > 0 ? '<div style="padding:20px 24px 4px">' + shoutoutsHtml.join("") + '</div>' : '',
-
+ 
       '<div style="padding:20px 24px">',
       '<div style="font-size:11px;font-weight:700;color:#9090A8;letter-spacing:2px;text-transform:uppercase;margin-bottom:10px">&#127942; Perfect Attendance</div>',
       '<div>', perfectListHtml, '</div>',
       '</div>',
-
+ 
       '<div style="padding:0 24px 20px">',
       '<div style="font-size:11px;font-weight:700;color:#9090A8;letter-spacing:2px;text-transform:uppercase;margin-bottom:10px">This Week&#39;s Totals</div>',
       '<table style="width:100%;border-collapse:collapse;background:#111118;border-radius:10px;overflow:hidden">',
@@ -1089,22 +1092,22 @@ async function sendWeeklySummary() {
       '<tr><td style="padding:10px 14px;color:#F0F0F8;font-weight:700">Total Sats Spent This Week</td><td style="padding:10px 14px;text-align:right;color:#10B981;font-weight:800">&#9889;' + (totalWeekSats + staffWeekEarned).toLocaleString() + ' sats</td></tr>',
       '</table>',
       '</div>',
-
+ 
       '<div style="padding:0 24px 20px">',
       '<div style="background:rgba(247,147,26,0.06);border:1px solid rgba(247,147,26,0.2);border-radius:10px;padding:14px 16px;text-align:center">',
       '<div style="font-size:11px;color:#9090A8;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Total Owed Across Program</div>',
       '<div style="font-size:22px;font-weight:800;color:#F7931A;font-family:monospace">&#9889;' + totalOwed.toLocaleString() + ' sats</div>',
       '</div>',
       '</div>',
-
+ 
       '<div style="padding:16px 24px;border-top:1px solid #1C1C28;text-align:center">',
       '<a href="https://luthandosabtc.github.io/bitcoinekasi/" style="display:inline-block;background:#F7931A;color:#000;padding:12px 28px;border-radius:8px;font-weight:700;text-decoration:none;font-size:13px">Open Bitcoin Ekasi App</a>',
       '<div style="font-size:11px;color:#55556A;margin-top:14px">Bitcoin Ekasi · Mossel Bay · Powered by Lightning &#9889;</div>',
       '</div>',
-
+ 
       '</div>'
     ].join("");
-
+ 
     await sendAlert("Bitcoin Ekasi Weekly Summary — " + weekLabel, html);
     console.log("Weekly summary sent successfully");
   } catch(e) {
@@ -1112,15 +1115,16 @@ async function sendWeeklySummary() {
     await sendAlert("Bitcoin Ekasi — Weekly Summary Failed", "<p>Could not generate weekly summary: " + e.message + "</p>");
   }
 }
-
+ 
 // Schedule: every Friday at 5pm UTC (7pm SAST) — after the daily summary
 cron.schedule("5 17 * * 5", () => {
   console.log("Running weekly summary cron job...");
   sendWeeklySummary();
 }, { timezone: "UTC" });
-
+ 
 // Test endpoint to trigger weekly summary manually
 app.get("/send-weekly-summary", async (req, res) => {
   await sendWeeklySummary();
   res.json({ success: true, message: "Weekly summary sent" });
 });
+ 
