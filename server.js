@@ -12,25 +12,28 @@ const COMMUNITY_RECAP_WHATSAPP_NUMBER = process.env.COMMUNITY_RECAP_WHATSAPP_NUM
 const COMMUNITY_RECAP_CALLMEBOT_APIKEY = process.env.COMMUNITY_RECAP_CALLMEBOT_APIKEY;
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const ALERT_TO = ["luthando@bitcoinekasi.com"];
+const DAILY_SUMMARY_CC = ["sassa@bitcoinekasi.com"];
 const ALERT_FROM = "onboarding@resend.dev";
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 
 // ── Send email alert via Resend ──────────────────────────────
-async function sendAlert(subject, body) {
+async function sendAlert(subject, body, cc) {
   if (!RESEND_API_KEY) { console.log("No RESEND_API_KEY — skipping alert"); return; }
   try {
+    const payload = {
+      from: ALERT_FROM,
+      to: ALERT_TO,
+      subject: subject,
+      html: body
+    };
+    if (cc && cc.length) payload.cc = cc;
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {
         "Authorization": "Bearer " + RESEND_API_KEY,
         "Content-Type": "application/json"
       },
-      body: JSON.stringify({
-        from: ALERT_FROM,
-        to: ALERT_TO,
-        subject: subject,
-        html: body
-      })
+      body: JSON.stringify(payload)
     });
     const data = await res.json();
     if (!res.ok) console.error("Resend error:", JSON.stringify(data));
@@ -647,11 +650,11 @@ async function sendDailySummary() {
       '</div>'
     ].join("");
 
-    await sendAlert("Bitcoin Ekasi Daily Summary — " + todayFormatted, html);
+    await sendAlert("Bitcoin Ekasi Daily Summary — " + todayFormatted, html, DAILY_SUMMARY_CC);
     console.log("Daily summary sent successfully");
   } catch(e) {
     console.error("Daily summary failed:", e.message);
-    await sendAlert("Bitcoin Ekasi — Daily Summary Failed", "<p>Could not generate daily summary: " + e.message + "</p>");
+    await sendAlert("Bitcoin Ekasi — Daily Summary Failed", "<p>Could not generate daily summary: " + e.message + "</p>", DAILY_SUMMARY_CC);
   }
 }
 
