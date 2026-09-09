@@ -127,11 +127,41 @@ async function supabase(method, table, body = null, params = '') {
     'Content-Type': 'application/json',
     'Prefer': 'return=representation'
   };
-  const res = await fetch(url, { method, headers, body: body ? JSON.stringify(body) : null });
-  const text = await res.text();
-  console.log(`Supabase ${method} ${table}:`, res.status, text.slice(0, 200));
-  if (!res.ok) throw new Error(text);
-  return text ? JSON.parse(text) : [];
+  // Transient Supabase Kong gateway timeouts (502/503/504) and network errors
+  // are retried with exponential backoff, but only for GET requests — writes
+  // and 4xx errors (bad request/auth/data issues) fail immediately so we
+  // never mask a real error or risk a duplicate write.
+  const maxRetries = method === 'GET' ? 2 : 0;
+  let attempt = 0;
+  while (true) {
+    let res, text;
+    try {
+      res = await fetch(url, { method, headers, body: body ? JSON.stringify(body) : null });
+      text = await res.text();
+    } catch (networkErr) {
+      if (attempt < maxRetries) {
+        const delay = 500 * Math.pow(2, attempt);
+        console.log(`Supabase ${method} ${table}: network error (${networkErr.message}), retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})`);
+        await new Promise(r => setTimeout(r, delay));
+        attempt++;
+        continue;
+      }
+      throw networkErr;
+    }
+    console.log(`Supabase ${method} ${table}:`, res.status, text.slice(0, 200));
+    if (!res.ok) {
+      const isTransient = res.status === 502 || res.status === 503 || res.status === 504;
+      if (isTransient && attempt < maxRetries) {
+        const delay = 500 * Math.pow(2, attempt);
+        console.log(`Supabase ${method} ${table}: ${res.status}, retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})`);
+        await new Promise(r => setTimeout(r, delay));
+        attempt++;
+        continue;
+      }
+      throw new Error(text);
+    }
+    return text ? JSON.parse(text) : [];
+  }
 }
  
 // ── Safe JSON fetch helper (catches HTML error pages) ──
@@ -1127,4 +1157,3 @@ app.get("/send-weekly-summary", async (req, res) => {
   await sendWeeklySummary();
   res.json({ success: true, message: "Weekly summary sent" });
 });
- 
