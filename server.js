@@ -285,20 +285,108 @@ app.post("/test", async (req, res) => {
     res.json({ success: true, balance: btc.balance, walletId: btc.id });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
- 
+
+// ── Payment idempotency guard ────────────────────────────────────────────
+// Prevents the same record (e.g. one student's payout) from being paid
+// twice: either by a concurrent double-click ("Pay All Outstanding" /
+// "Pay" clicked again while a run is still in flight), or by retrying a
+// request that actually succeeded server-side but looked like it failed
+// client-side (e.g. a slow Bolt Card / LNURL round-trip that outran the
+// frontend's 30s abort timeout). Opt-in via payTable/payId/expectedPaid —
+// callers that don't pass those get the old, unguarded behavior.
+// See claude/diploma-payment-double-pay-bug.md for the incident this
+// closes (7 of 9 diploma students paid twice on 18 Sept 2026).
+const paymentLocks = new Set();
+
+// Fire-and-forget audit row in the `payments` table (see migration
+// create_payments_audit_log). Never throws — a logging failure must never
+// block or fail a real payment. This is what makes an incident like the
+// 18 Sept double-pay fully reconstructable next time: exact amount,
+// destination, and whether it was sent or blocked as a duplicate.
+function logPayment(opts) {
+  const { payTable, payId, recipientLabel, destination, amount, event, blinkStatus, detail } = opts;
+  supabase("POST", "payments", {
+    pay_table: payTable || null,
+    pay_id: payId || null,
+    recipient_name: recipientLabel || null,
+    destination: destination || null,
+    amount: parseInt(amount) || 0,
+    event,
+    blink_status: blinkStatus || null,
+    detail: detail || null
+  }).catch(e => console.error("payments audit log insert failed:", e.message));
+}
+
+// After Blink confirms a payment, this is the single place that writes
+// the new `paid` total — the backend is now the source of truth, not the
+// frontend, so a client crash/reload/second click can no longer race the
+// bookkeeping.
+async function recordPaymentAndRespond(res, opts) {
+  const { hasGuard, payTable, payId, expectedPaid, amount, status, destination, recipientLabel } = opts;
+  if (!hasGuard) {
+    logPayment({ destination, amount, event: "sent", blinkStatus: status, recipientLabel });
+    return res.json({ success: true, status });
+  }
+  const newPaid = expectedPaid + parseInt(amount);
+  logPayment({ payTable, payId, recipientLabel, destination, amount, event: "sent", blinkStatus: status });
+  try {
+    await supabase("PATCH", payTable, { paid: newPaid }, `?id=eq.${payId}`);
+    return res.json({ success: true, status, newPaid });
+  } catch (e) {
+    console.error(`Paid ${destination} but failed to record paid total:`, e.message);
+    await sendAlert(
+      "Bitcoin Ekasi - Payment sent but NOT recorded",
+      `<div style="font-family:Arial,sans-serif">Payment of ${amount} sats to ${recipientLabel || destination} succeeded, but updating ${payTable}.paid afterwards failed: ${e.message}. Please check and update it manually — otherwise this student/staff member may look unpaid and get paid again for the same amount.</div>`
+    ).catch(() => {});
+    return res.json({ success: true, status, recordWarning: "Payment sent, but the paid total could not be updated automatically. Check your email and update it manually." });
+  }
+}
+
 // ── Blink pay ──
 app.post("/pay", async (req, res) => {
-  const { apiKey, destination, amount, memo, staffName, whatsappNumber, callmebotApikey, telegramChatId } = req.body;
+  const { apiKey, destination, amount, memo, staffName, whatsappNumber, callmebotApikey, telegramChatId, payTable, payId, expectedPaid, recipientLabel } = req.body;
   if (!apiKey || !destination || !amount) {
     return res.status(400).json({ error: "Missing fields" });
   }
- 
+
   // Default memo if none provided
   const paymentMemo = memo || "Bitcoin Ekasi - Mossel Bay";
- 
+
   console.log(`Pay request: destination=${destination.slice(0,30)}... amount=${amount} memo="${paymentMemo}"`);
- 
+
+  const hasGuard = !!(payTable && payId && typeof expectedPaid === "number");
+  const lockKey = hasGuard ? `${payTable}:${payId}` : null;
+
+  if (lockKey) {
+    if (paymentLocks.has(lockKey)) {
+      logPayment({ payTable, payId, recipientLabel, destination, amount, event: "blocked_in_flight", detail: "A payment for this record was already in progress when this request arrived." });
+      return res.status(409).json({ error: "A payment for this record is already in progress. Wait for it to finish before retrying." });
+    }
+    paymentLocks.add(lockKey);
+  }
+
   try {
+    if (hasGuard) {
+      let currentPaid;
+      try {
+        const rows = await supabase("GET", payTable, null, `?id=eq.${payId}&select=paid`);
+        currentPaid = rows[0] ? (rows[0].paid || 0) : null;
+      } catch (e) {
+        return res.status(500).json({ error: "Could not verify current paid total before sending payment: " + e.message });
+      }
+      if (currentPaid === null) {
+        return res.status(400).json({ error: `No ${payTable} record found for id ${payId}` });
+      }
+      if (currentPaid !== expectedPaid) {
+        const staleDetail = `paid is now ${currentPaid}, caller expected ${expectedPaid} — likely already paid`;
+        logPayment({ payTable, payId, recipientLabel, destination, amount, event: "blocked_stale", detail: staleDetail });
+        return res.status(409).json({
+          error: `This record's paid total already changed (now ${currentPaid}, expected ${expectedPaid}) — most likely this payment already went through. Refresh and check before retrying.`,
+          currentPaid
+        });
+      }
+    }
+
     // Get BTC wallet ID
     const meRes = await safeFetch(BLINK_URL, {
       method: "POST",
@@ -344,9 +432,10 @@ app.post("/pay", async (req, res) => {
         if (telegramChatId) {
           sendTelegramPayment(telegramChatId, staffName || "Staff", parseInt(amount)).catch(() => {});
         }
-        return res.json({ success: true, status: result.status });
+        return await recordPaymentAndRespond(res, { hasGuard, payTable, payId, expectedPaid, amount, status: result.status, destination, recipientLabel });
       }
       const errMsg = "Payment status: " + result?.status;
+      logPayment({ payTable, payId, recipientLabel, destination, amount, event: "failed", blinkStatus: result?.status, detail: errMsg });
       await payFailEmail(destination, "Lightning Address", parseInt(amount), errMsg).catch(() => {});
       return res.status(400).json({ error: errMsg });
     }
@@ -417,9 +506,10 @@ app.post("/pay", async (req, res) => {
         if (telegramChatId) {
           sendTelegramPayment(telegramChatId, staffName || "Staff", parseInt(amount)).catch(() => {});
         }
-        return res.json({ success: true, status: payResult.status });
+        return await recordPaymentAndRespond(res, { hasGuard, payTable, payId, expectedPaid, amount, status: payResult.status, destination, recipientLabel });
       }
       const boltErrMsg = "Payment failed: " + payResult?.status;
+      logPayment({ payTable, payId, recipientLabel, destination, amount, event: "failed", blinkStatus: payResult?.status, detail: boltErrMsg });
       await payFailEmail(destination, "Bolt Card / LNURL", parseInt(amount), boltErrMsg).catch(() => {});
       return res.status(400).json({ error: boltErrMsg });
     }
@@ -428,8 +518,11 @@ app.post("/pay", async (req, res) => {
  
   } catch (e) {
     console.error("Pay error:", e.message);
+    logPayment({ payTable, payId, recipientLabel, destination, amount, event: "failed", detail: e.message });
     await payFailEmail(destination, "Lightning Payment", parseInt(amount) || 0, e.message).catch(() => {});
     res.status(500).json({ error: e.message });
+  } finally {
+    if (lockKey) paymentLocks.delete(lockKey);
   }
 });
 // ═══════════════════════════════════════════════════════════════
