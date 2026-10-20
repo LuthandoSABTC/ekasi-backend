@@ -112,15 +112,18 @@ function payFailEmail(recipientName, recipientType, amount, errorMsg) {
 }
  
 // ── Supabase config ──
+// Self-hosted mode: set POSTGREST_URL (e.g. http://127.0.0.1:3402) to use our own Postgres
+// through PostgREST instead of Supabase. SUPABASE_KEY then holds our own service key.
+const POSTGREST_URL = process.env.POSTGREST_URL;
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_KEY;
  
-if (!SUPABASE_URL || !SUPABASE_KEY) {
+if ((!SUPABASE_URL && !POSTGREST_URL) || !SUPABASE_KEY) {
   console.error("Missing SUPABASE_URL or SUPABASE_KEY environment variables — backend cannot start.");
   process.exit(1);
 }
 async function supabase(method, table, body = null, params = '') {
-  const url = `${SUPABASE_URL}/rest/v1/${table}${params}`;
+  const url = `${POSTGREST_URL || (SUPABASE_URL + '/rest/v1')}/${table}${params}`;
   const headers = {
     'apikey': SUPABASE_KEY,
     'Authorization': `Bearer ${SUPABASE_KEY}`,
