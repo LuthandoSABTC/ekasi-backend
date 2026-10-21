@@ -3,8 +3,10 @@ const cors = require("cors");
 const fetch = require("node-fetch");
 const cron = require("node-cron");
 const nodemailer = require("nodemailer");
+const auth = require("./auth");
  
 const app = express();
+app.set("trust proxy", 1); // behind Caddy: use the real visitor IP for rate limits
 app.use(cors());
 app.use(express.json());
  
@@ -209,38 +211,120 @@ function decodeLnurl(lnurl) {
  
 app.get("/", (req, res) => res.json({ status: "Bitcoin Ekasi Backend Running ⚡" }));
  
-// ── Supabase proxy endpoints ──
-app.get("/db/:table", async (req, res) => {
+// ── Logins (stage 2) ──
+const ADMIN_ONLY = auth.requireAuth("admin");
+const ANY_LOGIN = auth.requireAuth("admin", "teacher");
+
+async function getSetting(key) {
+  const rows = await supabase("GET", "app_settings", null, `?key=eq.${encodeURIComponent(key)}&select=value`);
+  return rows && rows[0] ? rows[0].value : null;
+}
+async function setSetting(key, value) {
+  const rows = await supabase("GET", "app_settings", null, `?key=eq.${encodeURIComponent(key)}&select=key`);
+  if (rows && rows.length) await supabase("PATCH", "app_settings", { value }, `?key=eq.${encodeURIComponent(key)}`);
+  else await supabase("POST", "app_settings", { key, value });
+}
+
+app.post("/auth/login", async (req, res) => {
   try {
-    const params = req.url.replace(`/db/${req.params.table}`, '') || '';
-    const data = await supabase('GET', req.params.table, null, params);
-    res.json(data);
-  } catch (e) { res.status(500).json({ error: e.message }); }
+    const { role, teacherId, password } = req.body || {};
+    if (!password || typeof password !== "string" || !["admin", "teacher"].includes(role)) {
+      return res.status(400).json({ error: "Missing details" });
+    }
+    const key = `${req.ip}|${role}|${teacherId || ""}`;
+    if (auth.tooManyAttempts(key)) return res.status(429).json({ error: "Too many tries. Wait 15 minutes and try again." });
+    let ok = false, user = { role };
+    if (role === "admin") {
+      ok = auth.verifyPassword(password, await getSetting("admin_password"));
+    } else {
+      if (!teacherId) return res.status(400).json({ error: "Missing details" });
+      const rows = await supabase("GET", "teachers", null, `?id=eq.${encodeURIComponent(teacherId)}&select=id,name,password`);
+      const t = rows && rows[0];
+      ok = !!t && auth.verifyPassword(password, t.password);
+      if (ok) user = { role, teacherId: t.id, name: t.name };
+    }
+    if (!ok) return res.status(401).json({ error: "Wrong password" });
+    auth.clearAttempts(key);
+    res.json({ token: auth.makeToken(user), role, hours: auth.TOKEN_HOURS });
+  } catch (e) { console.error("login error:", e.message); res.status(500).json({ error: "Login failed" }); }
 });
- 
-app.post("/db/:table", async (req, res) => {
+
+app.get("/auth/me", ANY_LOGIN, (req, res) => res.json({ role: req.user.role, teacherId: req.user.teacherId || null }));
+
+// Change a password. Admin may change the admin password or any teacher's; a teacher only their own.
+app.post("/auth/change-password", ANY_LOGIN, async (req, res) => {
   try {
-    const data = await supabase('POST', req.params.table, req.body);
-    res.json(data);
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
- 
-app.patch("/db/:table", async (req, res) => {
-  try {
-    const params = req.url.replace(`/db/${req.params.table}`, '') || '';
-    const data = await supabase('PATCH', req.params.table, req.body, params);
-    res.json(data);
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
- 
-app.delete("/db/:table", async (req, res) => {
-  try {
-    const params = req.url.replace(`/db/${req.params.table}`, '') || '';
-    await supabase('DELETE', req.params.table, null, params);
+    const { target, teacherId, newPassword } = req.body || {};
+    if (typeof newPassword !== "string" || newPassword.length < 6) return res.status(400).json({ error: "New password must be at least 6 characters" });
+    if (target === "admin") {
+      if (req.user.role !== "admin") return res.status(403).json({ error: "Not allowed" });
+      await setSetting("admin_password", auth.hashPassword(newPassword));
+    } else if (target === "teacher") {
+      const id = req.user.role === "admin" ? teacherId : req.user.teacherId;
+      if (!id) return res.status(400).json({ error: "Missing teacher" });
+      await supabase("PATCH", "teachers", { password: auth.hashPassword(newPassword) }, `?id=eq.${encodeURIComponent(id)}`);
+    } else return res.status(400).json({ error: "Missing details" });
     res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: "Could not change password" }); }
+});
+
+// ── Database proxy (requires login) ──
+// Tables the pages may use. teachers/payments are read-only here; app_settings and other apps' tables are not reachable.
+const DB_TABLES = new Set(["students","attendance","chapters","excuses","postgrad_students","postgrad_attendance","postgrad_excuses","shack_owners","shack_checkins","staff","staff_attendance","teachers","payments"]);
+const DB_READONLY = new Set(["teachers","payments"]);
+function checkTable(req, res, next) {
+  const t = req.params.table;
+  if (!DB_TABLES.has(t)) return res.status(404).json({ error: "Unknown table" });
+  if (req.method !== "GET" && DB_READONLY.has(t)) return res.status(403).json({ error: "Read-only table" });
+  if (t === "payments" && req.user.role !== "admin") return res.status(403).json({ error: "Not allowed for your account" });
+  next();
+}
+const dbParams = (req) => req.url.replace(`/db/${req.params.table}`, "") || "";
+
+app.get("/db/:table", ANY_LOGIN, checkTable, async (req, res) => {
+  try {
+    let data = await supabase("GET", req.params.table, null, dbParams(req));
+    if (req.params.table === "teachers" && Array.isArray(data)) data = data.map(({ password, ...rest }) => rest);
+    res.json(data);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
- 
+
+app.post("/db/:table", ANY_LOGIN, checkTable, async (req, res) => {
+  try { res.json(await supabase("POST", req.params.table, req.body)); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.patch("/db/:table", ANY_LOGIN, checkTable, async (req, res) => {
+  try { res.json(await supabase("PATCH", req.params.table, req.body, dbParams(req))); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete("/db/:table", ANY_LOGIN, checkTable, async (req, res) => {
+  try { await supabase("DELETE", req.params.table, null, dbParams(req)); res.json({ success: true }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Public pages (no login): only first names/ids and day counts — never payment details or Lightning addresses.
+app.get("/public/leaderboard", async (req, res) => {
+  try {
+    const students = await supabase("GET", "students", null, "?select=id,name");
+    const att = await supabase("GET", "attendance", null, "?select=student_id&present=eq.true");
+    const days = {};
+    att.forEach(a => { days[a.student_id] = (days[a.student_id] || 0) + 1; });
+    res.json(students.map(s => ({ id: s.id, name: s.name, days: days[s.id] || 0 })));
+  } catch (e) { res.status(500).json({ error: "Unavailable" }); }
+});
+
+app.get("/public/alumni", async (req, res) => {
+  try {
+    const students = await supabase("GET", "students", null, "?graduated=eq.true&order=graduated_at.asc&select=id,name,graduated_at");
+    const att = await supabase("GET", "attendance", null, "?select=student_id");
+    const days = {};
+    att.forEach(a => { days[a.student_id] = (days[a.student_id] || 0) + 1; });
+    res.json(students.map(s => ({ name: s.name, graduated_at: s.graduated_at, days: days[s.id] || 0 })));
+  } catch (e) { res.status(500).json({ error: "Unavailable" }); }
+});
+
 // ═══════════════════════════════════════════════════════════════
 // PUBLIC ALUMNI ENDPOINT — new self-contained addition to server.js
 // Only exposes safe, public info — no Lightning addresses, no payments.
@@ -272,7 +356,7 @@ app.get("/alumni", async (req, res) => {
  
  
 // ── Blink test ──
-app.post("/test", async (req, res) => {
+app.post("/test", ANY_LOGIN, async (req, res) => {
   const { apiKey } = req.body;
   if (!apiKey) return res.status(400).json({ error: "Missing API key" });
   try {
@@ -346,7 +430,7 @@ async function recordPaymentAndRespond(res, opts) {
 }
 
 // ── Blink pay ──
-app.post("/pay", async (req, res) => {
+app.post("/pay", ANY_LOGIN, async (req, res) => {
   const { apiKey, destination, amount, memo, staffName, whatsappNumber, callmebotApikey, telegramChatId, payTable, payId, expectedPaid, recipientLabel } = req.body;
   if (!apiKey || !destination || !amount) {
     return res.status(400).json({ error: "Missing fields" });
@@ -799,12 +883,12 @@ cron.schedule("15 17 * * 5", () => {
 }, { timezone: "UTC" });
  
 // Test endpoint to trigger summary manually
-app.get("/send-summary", async (req, res) => {
+app.get("/send-summary", ADMIN_ONLY, async (req, res) => {
   await sendDailySummary();
   res.json({ success: true, message: "Daily summary sent" });
 });
  
-app.get("/post-weekly-whatsapp", async (req, res) => {
+app.get("/post-weekly-whatsapp", ADMIN_ONLY, async (req, res) => {
   await postWeeklyRecapToWhatsApp();
   res.json({ success: true, message: "Community recap sent to your WhatsApp — check your phone to forward it" });
 });
@@ -936,7 +1020,7 @@ function chunkMessage(text, maxLen = 600) {
   if (current) chunks.push(current);
   return chunks;
 }
-app.post("/send-stakeholder-update", async (req, res) => {
+app.post("/send-stakeholder-update", ADMIN_ONLY, async (req, res) => {
   const { message } = req.body;
   if (!message) return res.status(400).json({ error: "Missing 'message' in request body" });
   if (!COMMUNITY_RECAP_WHATSAPP_NUMBER || !COMMUNITY_RECAP_CALLMEBOT_APIKEY) {
@@ -1059,7 +1143,7 @@ cron.schedule("20 17 * * 5", () => {
 }, { timezone: "UTC" });
  
 // Manual test endpoint
-app.get("/grant-staff-bonus", async (req, res) => {
+app.get("/grant-staff-bonus", ADMIN_ONLY, async (req, res) => {
   await grantWeeklyStaffBonus();
   res.json({ success: true, message: "Staff bonus check triggered — check logs for the winner" });
 });
@@ -1249,7 +1333,7 @@ cron.schedule("5 17 * * 5", () => {
 }, { timezone: "UTC" });
  
 // Test endpoint to trigger weekly summary manually
-app.get("/send-weekly-summary", async (req, res) => {
+app.get("/send-weekly-summary", ADMIN_ONLY, async (req, res) => {
   await sendWeeklySummary();
   res.json({ success: true, message: "Weekly summary sent" });
 });
