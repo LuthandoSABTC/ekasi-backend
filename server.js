@@ -215,6 +215,9 @@ app.get("/", (req, res) => res.json({ status: "Bitcoin Ekasi Backend Running ⚡
 const ADMIN_ONLY = auth.requireAuth("admin");
 const ANY_LOGIN = auth.requireAuth("admin", "teacher");
 
+// ── Staff wallet balances (admin only, read-only Blink keys, with consent) ──
+require("./staff-wallets")(app, { supabase, ADMIN_ONLY, fetch });
+
 async function getSetting(key) {
   const rows = await supabase("GET", "app_settings", null, `?key=eq.${encodeURIComponent(key)}&select=value`);
   return rows && rows[0] ? rows[0].value : null;
