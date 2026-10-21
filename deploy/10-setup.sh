@@ -75,6 +75,7 @@ COMMUNITY_RECAP_CALLMEBOT_APIKEY=
 ENV
 fi
 chown -R ekasi:ekasi "$APP"; chmod 600 "$ENVF"
+chown root:postgrest "$BASE/postgrest.conf"; chmod 640 "$BASE/postgrest.conf"   # the line above re-owned the whole folder
 cat > /etc/systemd/system/ekasi-backend.service <<UNIT
 [Unit]
 Description=Bitcoin Ekasi Attendance Tracker backend
