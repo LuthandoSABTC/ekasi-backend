@@ -270,8 +270,8 @@ app.post("/auth/change-password", ANY_LOGIN, async (req, res) => {
 
 // ── Database proxy (requires login) ──
 // Tables the pages may use. teachers/payments are read-only here; app_settings and other apps' tables are not reachable.
-const DB_TABLES = new Set(["students","attendance","chapters","excuses","postgrad_students","postgrad_attendance","postgrad_excuses","shack_owners","shack_checkins","staff","staff_attendance","teachers","payments"]);
-const DB_READONLY = new Set(["teachers","payments"]);
+const DB_TABLES = new Set(["stack_logins","students","attendance","chapters","excuses","postgrad_students","postgrad_attendance","postgrad_excuses","shack_owners","shack_checkins","staff","staff_attendance","teachers","payments"]);
+const DB_READONLY = new Set(["teachers","payments","stack_logins"]);
 function checkTable(req, res, next) {
   const t = req.params.table;
   if (!DB_TABLES.has(t)) return res.status(404).json({ error: "Unknown table" });
@@ -302,6 +302,36 @@ app.patch("/db/:table", ANY_LOGIN, checkTable, async (req, res) => {
 app.delete("/db/:table", ANY_LOGIN, checkTable, async (req, res) => {
   try { await supabase("DELETE", req.params.table, null, dbParams(req)); res.json({ success: true }); }
   catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Stack & Study → tracker link ──
+// Stack & Study calls this when a student logs in. We note the login; we never mark paid attendance.
+// "In class" = Tuesday–Friday, 14:45–17:00 South African time, from a class network address.
+const STACK_KEY = process.env.STACK_INTEGRATION_KEY || "";
+const CLASS_IPS = (process.env.CLASS_IPS || "").split(",").map(x => x.trim()).filter(Boolean);
+const normName = (n) => String(n || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9 ]+/g, " ").split(/\s+/).filter(Boolean);
+const sameName = (a, b) => { const x = normName(a), y = normName(b); return x.length && x.join(" ") === y.join(" ") || (x.length > 1 && x.slice().sort().join(" ") === y.slice().sort().join(" ")); };
+function sastNow() { const d = new Date(Date.now() + 2 * 3600 * 1000); return { day: d.getUTCDay(), mins: d.getUTCHours() * 60 + d.getUTCMinutes(), date: d.toISOString().slice(0, 10) }; }
+function inClassWindow(n) { return n.day >= 2 && n.day <= 5 && n.mins >= 14 * 60 + 45 && n.mins <= 17 * 60; }
+
+app.post("/integrations/stack-login", async (req, res) => {
+  try {
+    const given = req.headers["x-integration-key"] || "";
+    const a = Buffer.from(String(given)), b = Buffer.from(STACK_KEY);
+    if (!STACK_KEY || a.length !== b.length || !require("crypto").timingSafeEqual(a, b)) return res.status(401).json({ error: "Not allowed" });
+    const { name, ip } = req.body || {};
+    if (!name) return res.status(400).json({ error: "Missing name" });
+    const now = sastNow();
+    const inClass = inClassWindow(now) && CLASS_IPS.includes(String(ip || "").replace(/^::ffff:/, ""));
+    let kind = "diploma", match = (await supabase("GET", "students", null, "?select=id,name&status=eq.active")).filter(s => sameName(s.name, name));
+    if (!match.length) { kind = "postgrad"; match = (await supabase("GET", "postgrad_students", null, "?select=id,name")).filter(s => sameName(s.name, name)); }
+    if (match.length !== 1) { console.log(`stack-login: no single match for "${name}" (${match.length})`); return res.json({ matched: false }); }
+    const id = match[0].id;
+    const rows = await supabase("GET", "stack_logins", null, `?kind=eq.${kind}&student_id=eq.${id}&date=eq.${now.date}&select=id,in_class`);
+    if (!rows.length) await supabase("POST", "stack_logins", { kind, student_id: id, date: now.date, in_class: inClass });
+    else if (inClass && !rows[0].in_class) await supabase("PATCH", "stack_logins", { in_class: true }, `?id=eq.${rows[0].id}`);
+    res.json({ matched: true, inClass });
+  } catch (e) { console.error("stack-login error:", e.message); res.status(500).json({ error: "Failed" }); }
 });
 
 // Public pages (no login): only first names/ids and day counts — never payment details or Lightning addresses.
