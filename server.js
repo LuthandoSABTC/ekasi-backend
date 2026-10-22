@@ -338,6 +338,94 @@ app.post("/integrations/stack-login", async (req, res) => {
   } catch (e) { console.error("stack-login error:", e.message); res.status(500).json({ error: "Failed" }); }
 });
 
+// ── Stack & Study rewards → tracker payout ──
+// Stack & Study sends each reward (passed chapter review or book test) here. It waits for approval on the admin page; once approved
+// the sats are added to the student's bonus, so the normal payout pays them together with the attendance sats.
+function stackKeyOk(req) {
+  const given = req.headers["x-integration-key"] || "";
+  const a = Buffer.from(String(given)), b = Buffer.from(STACK_KEY);
+  return !!STACK_KEY && a.length === b.length && require("crypto").timingSafeEqual(a, b);
+}
+const REF_OK = /^[0-9a-fA-F-]{8,64}$/;
+
+// An approved reward becomes "paid" once the student's paid total has caught up with everything they have earned
+// (same sum the payout screen uses: attendance days x 500 + bonus).
+async function settleRewards() {
+  const approved = await supabase("GET", "stack_rewards", null, "?status=eq.approved&select=student_id");
+  for (const sid of [...new Set(approved.map(r => r.student_id))]) {
+    const [st] = await supabase("GET", "students", null, `?id=eq.${sid}&select=paid,bonus`);
+    if (!st) continue;
+    const days = (await supabase("GET", "attendance", null, `?student_id=eq.${sid}&select=id`)).length;
+    if ((st.paid || 0) >= days * 500 + (st.bonus || 0)) {
+      await supabase("PATCH", "stack_rewards", { status: "paid" }, `?student_id=eq.${sid}&status=eq.approved`);
+    }
+  }
+}
+
+app.post("/integrations/stack-reward", async (req, res) => {
+  try {
+    if (!stackKeyOk(req)) return res.status(401).json({ error: "Not allowed" });
+    const { ref, name, kind, label, amount_sats } = req.body || {};
+    const amount = Number(amount_sats);
+    if (!REF_OK.test(String(ref || "")) || !name || !Number.isInteger(amount) || amount < 1 || amount > 100000) return res.status(400).json({ error: "Bad reward" });
+    const existing = await supabase("GET", "stack_rewards", null, `?ref=eq.${encodeURIComponent(ref)}&select=status`);
+    if (existing.length) return res.json({ matched: true, status: existing[0].status });
+    const rows = (await supabase("GET", "students", null, "?select=id,name&status=eq.active")).filter(s => sameName(s.name, name));
+    if (rows.length !== 1) { console.log(`stack-reward: no single match for "${name}" (${rows.length})`); return res.json({ matched: false }); }
+    await supabase("POST", "stack_rewards", { ref, student_id: rows[0].id, kind: String(kind || "chapter").slice(0, 20), label: String(label || "Stack & Study reward").slice(0, 120), amount_sats: amount });
+    res.json({ matched: true, status: "pending" });
+  } catch (e) { console.error("stack-reward error:", e.message); res.status(500).json({ error: "Failed" }); }
+});
+
+app.get("/integrations/stack-reward-status", async (req, res) => {
+  try {
+    if (!stackKeyOk(req)) return res.status(401).json({ error: "Not allowed" });
+    const refs = String(req.query.refs || "").split(",").filter(r => REF_OK.test(r)).slice(0, 200);
+    if (!refs.length) return res.json([]);
+    await settleRewards();
+    res.json(await supabase("GET", "stack_rewards", null, `?ref=in.(${refs.join(",")})&select=ref,status`));
+  } catch (e) { console.error("stack-reward-status error:", e.message); res.status(500).json({ error: "Failed" }); }
+});
+
+// Admin: the list shown on the payout page.
+app.get("/rewards", ADMIN_ONLY, async (req, res) => {
+  try {
+    await settleRewards();
+    const rows = await supabase("GET", "stack_rewards", null, "?select=id,student_id,kind,label,amount_sats,status,created_at,decided_at&order=created_at.desc&limit=200");
+    const ids = [...new Set(rows.map(r => r.student_id))];
+    const names = ids.length ? Object.fromEntries((await supabase("GET", "students", null, `?id=in.(${ids.join(",")})&select=id,name`)).map(s => [s.id, s.name])) : {};
+    res.json(rows.map(r => ({ ...r, student_name: names[r.student_id] || "Unknown" })));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post("/rewards/:id/approve", ADMIN_ONLY, async (req, res) => {
+  try {
+    const id = req.params.id;
+    if (!REF_OK.test(id)) return res.status(400).json({ error: "Bad id" });
+    const done = await supabase("PATCH", "stack_rewards", { status: "approved", decided_at: new Date().toISOString() }, `?id=eq.${id}&status=eq.pending`);
+    if (!done.length) return res.status(409).json({ error: "That reward is no longer waiting for approval." });
+    const r = done[0];
+    try {
+      const [st] = await supabase("GET", "students", null, `?id=eq.${r.student_id}&select=bonus`);
+      await supabase("PATCH", "students", { bonus: (st.bonus || 0) + r.amount_sats }, `?id=eq.${r.student_id}`);
+    } catch (e) {
+      await supabase("PATCH", "stack_rewards", { status: "pending", decided_at: null }, `?id=eq.${id}`).catch(() => {});
+      return res.status(500).json({ error: "Could not add the sats to the student. Nothing was changed." });
+    }
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post("/rewards/:id/reject", ADMIN_ONLY, async (req, res) => {
+  try {
+    const id = req.params.id;
+    if (!REF_OK.test(id)) return res.status(400).json({ error: "Bad id" });
+    const done = await supabase("PATCH", "stack_rewards", { status: "rejected", decided_at: new Date().toISOString() }, `?id=eq.${id}&status=eq.pending`);
+    if (!done.length) return res.status(409).json({ error: "That reward is no longer waiting for approval." });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // Public pages (no login): only first names/ids and day counts — never payment details or Lightning addresses.
 app.get("/public/leaderboard", async (req, res) => {
   try {
