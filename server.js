@@ -309,23 +309,24 @@ app.delete("/db/:table", ANY_LOGIN, checkTable, async (req, res) => {
 
 // ── Stack & Study → tracker link ──
 // Stack & Study calls this when a student logs in. We note the login; we never mark paid attendance.
-// "In class" = Tuesday–Friday, 14:45–17:00 South African time, from a class network address.
+// "In class" = Monday–Friday, 14:45–17:00 South African time, from a class network address, and on a day the student is scheduled
+// to come (Stack & Study sends scheduled_today; when it is missing or null the student has no group yet, so the day does not matter).
 const STACK_KEY = process.env.STACK_INTEGRATION_KEY || "";
 const CLASS_IPS = (process.env.CLASS_IPS || "").split(",").map(x => x.trim()).filter(Boolean);
 const normName = (n) => String(n || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9 ]+/g, " ").split(/\s+/).filter(Boolean);
 const sameName = (a, b) => { const x = normName(a), y = normName(b); return x.length && x.join(" ") === y.join(" ") || (x.length > 1 && x.slice().sort().join(" ") === y.slice().sort().join(" ")); };
 function sastNow() { const d = new Date(Date.now() + 2 * 3600 * 1000); return { day: d.getUTCDay(), mins: d.getUTCHours() * 60 + d.getUTCMinutes(), date: d.toISOString().slice(0, 10) }; }
-function inClassWindow(n) { return n.day >= 2 && n.day <= 5 && n.mins >= 14 * 60 + 45 && n.mins <= 17 * 60; }
+function inClassWindow(n) { return n.day >= 1 && n.day <= 5 && n.mins >= 14 * 60 + 45 && n.mins <= 17 * 60; }
 
 app.post("/integrations/stack-login", async (req, res) => {
   try {
     const given = req.headers["x-integration-key"] || "";
     const a = Buffer.from(String(given)), b = Buffer.from(STACK_KEY);
     if (!STACK_KEY || a.length !== b.length || !require("crypto").timingSafeEqual(a, b)) return res.status(401).json({ error: "Not allowed" });
-    const { name, ip } = req.body || {};
+    const { name, ip, scheduled_today } = req.body || {};
     if (!name) return res.status(400).json({ error: "Missing name" });
     const now = sastNow();
-    const inClass = inClassWindow(now) && CLASS_IPS.includes(String(ip || "").replace(/^::ffff:/, ""));
+    const inClass = inClassWindow(now) && scheduled_today !== false && CLASS_IPS.includes(String(ip || "").replace(/^::ffff:/, ""));
     let kind = "diploma", match = (await supabase("GET", "students", null, "?select=id,name&status=eq.active")).filter(s => sameName(s.name, name));
     if (!match.length) { kind = "postgrad"; match = (await supabase("GET", "postgrad_students", null, "?select=id,name")).filter(s => sameName(s.name, name)); }
     if (match.length !== 1) { console.log(`stack-login: no single match for "${name}" (${match.length})`); return res.json({ matched: false }); }
