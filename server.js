@@ -307,10 +307,10 @@ app.delete("/db/:table", ANY_LOGIN, checkTable, async (req, res) => {
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ── Stack & Study → tracker link ──
-// Stack & Study calls this when a student logs in. We note the login; we never mark paid attendance.
+// ── Study & Stack → tracker link ──
+// Study & Stack calls this when a student logs in. We note the login; we never mark paid attendance.
 // "In class" = Monday–Friday, 14:45–17:00 South African time, from a class network address, and on a day the student is scheduled
-// to come (Stack & Study sends scheduled_today; when it is missing or null the student has no group yet, so the day does not matter).
+// to come (Study & Stack sends scheduled_today; when it is missing or null the student has no group yet, so the day does not matter).
 const STACK_KEY = process.env.STACK_INTEGRATION_KEY || "";
 const CLASS_IPS = (process.env.CLASS_IPS || "").split(",").map(x => x.trim()).filter(Boolean);
 const normName = (n) => String(n || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9 ]+/g, " ").split(/\s+/).filter(Boolean);
@@ -338,8 +338,8 @@ app.post("/integrations/stack-login", async (req, res) => {
   } catch (e) { console.error("stack-login error:", e.message); res.status(500).json({ error: "Failed" }); }
 });
 
-// ── Stack & Study rewards → tracker payout ──
-// Stack & Study sends each reward (passed chapter review or book test) here. It waits for approval on the admin page; once approved
+// ── Study & Stack rewards → tracker payout ──
+// Study & Stack sends each reward (passed chapter review or book test) here. It waits for approval on the admin page; once approved
 // the sats are added to the student's bonus, so the normal payout pays them together with the attendance sats.
 function stackKeyOk(req) {
   const given = req.headers["x-integration-key"] || "";
@@ -372,7 +372,7 @@ app.post("/integrations/stack-reward", async (req, res) => {
     if (existing.length) return res.json({ matched: true, status: existing[0].status });
     const rows = (await supabase("GET", "students", null, "?select=id,name&status=eq.active")).filter(s => sameName(s.name, name));
     if (rows.length !== 1) { console.log(`stack-reward: no single match for "${name}" (${rows.length})`); return res.json({ matched: false }); }
-    await supabase("POST", "stack_rewards", { ref, student_id: rows[0].id, kind: String(kind || "chapter").slice(0, 20), label: String(label || "Stack & Study reward").slice(0, 120), amount_sats: amount });
+    await supabase("POST", "stack_rewards", { ref, student_id: rows[0].id, kind: String(kind || "chapter").slice(0, 20), label: String(label || "Study & Stack reward").slice(0, 120), amount_sats: amount });
     res.json({ matched: true, status: "pending" });
   } catch (e) { console.error("stack-reward error:", e.message); res.status(500).json({ error: "Failed" }); }
 });
