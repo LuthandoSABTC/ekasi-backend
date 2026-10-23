@@ -567,6 +567,25 @@ async function recordPaymentAndRespond(res, opts) {
   }
 }
 
+// ── Blink wallet balance (so the payout screen can say "enough" or "short" before anything is sent) ──
+// Read-only: asks Blink for the BTC wallet balance with the key the person already typed in. The key is never stored or logged.
+app.post("/wallet-balance", ANY_LOGIN, async (req, res) => {
+  const apiKey = req.body && req.body.apiKey;
+  if (!apiKey || typeof apiKey !== "string") return res.status(400).json({ error: "Missing key" });
+  try {
+    const r = await safeFetch(BLINK_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-API-KEY": apiKey },
+      body: JSON.stringify({ query: "{ me { defaultAccount { wallets { id walletCurrency balance } } } }" })
+    });
+    if (r.data.errors?.length) return res.status(400).json({ error: r.data.errors[0].message });
+    const wallets = r.data?.data?.me?.defaultAccount?.wallets || [];
+    const btc = wallets.find(w => w.walletCurrency === "BTC");
+    if (!btc || !Number.isFinite(Number(btc.balance))) return res.status(400).json({ error: "No BTC wallet found" });
+    res.json({ sats: Number(btc.balance) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ── Blink pay ──
 app.post("/pay", ANY_LOGIN, async (req, res) => {
   const { apiKey, destination, amount, memo, staffName, whatsappNumber, callmebotApikey, telegramChatId, payTable, payId, expectedPaid, recipientLabel } = req.body;
