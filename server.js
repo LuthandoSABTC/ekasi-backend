@@ -16,7 +16,7 @@ const COMMUNITY_RECAP_CALLMEBOT_APIKEY = process.env.COMMUNITY_RECAP_CALLMEBOT_A
 const GMAIL_USER = process.env.GMAIL_USER || "luthando@bitcoinekasi.com";
 const GMAIL_APP_PASSWORD = process.env.GMAIL_APP_PASSWORD;
 const ALERT_TO = ["luthando@bitcoinekasi.com"];
-const DAILY_SUMMARY_CC = ["sassa@bitcoinekasi.com"];
+const DAILY_SUMMARY_CC = [];
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
  
 // ── Send email alert via Gmail SMTP ──────────────────────────
