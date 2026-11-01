@@ -316,7 +316,7 @@ const CLASS_IPS = (process.env.CLASS_IPS || "").split(",").map(x => x.trim()).fi
 const normName = (n) => String(n || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9 ]+/g, " ").split(/\s+/).filter(Boolean);
 const sameName = (a, b) => { const x = normName(a), y = normName(b); return x.length && x.join(" ") === y.join(" ") || (x.length > 1 && x.slice().sort().join(" ") === y.slice().sort().join(" ")); };
 function sastNow() { const d = new Date(Date.now() + 2 * 3600 * 1000); return { day: d.getUTCDay(), mins: d.getUTCHours() * 60 + d.getUTCMinutes(), date: d.toISOString().slice(0, 10) }; }
-function inClassWindow(n) { return n.day >= 1 && n.day <= 5 && n.mins >= 14 * 60 + 45 && n.mins <= 17 * 60; }
+function inClassWindow(n) { return n.day >= 1 && n.day <= 5 && n.mins >= 15 * 60 + 50 && n.mins <= 17 * 60; }
 
 app.post("/integrations/stack-login", async (req, res) => {
   try {
