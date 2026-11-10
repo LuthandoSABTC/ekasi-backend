@@ -183,6 +183,52 @@ async function safeFetch(url, options = {}) {
   }
 }
  
+// ── Lightning payments: resolve addresses / fetch invoices ourselves ──
+// Lightning Address name@domain → LNURL-pay URL (LUD-16)
+function lnAddressToUrl(address) {
+  const m = String(address).trim().toLowerCase().match(/^([a-z0-9._+-]+)@([a-z0-9.-]+\.[a-z]{2,})$/);
+  if (!m) throw Object.assign(new Error(`Invalid Lightning Address: ${address}`), { final: true });
+  return `https://${m[2]}/.well-known/lnurlp/${m[1]}`;
+}
+
+// LNURL-pay: read params, check amount range, fetch a bolt11 invoice.
+// Errors marked `final` are real refusals (wrong amount, service said no);
+// others are network/format problems where a fallback is worth trying.
+async function fetchLnurlInvoice(lnurlpUrl, amountSats, memo) {
+  const params = await safeFetch(lnurlpUrl, { timeout: 15000 });
+  if (params.data.status === "ERROR") {
+    throw Object.assign(new Error("LNURL error: " + params.data.reason), { final: true });
+  }
+  const { callback, minSendable, maxSendable, commentAllowed, tag } = params.data;
+  if (tag && tag !== "payRequest") throw new Error(`LNURL is not a pay request (tag: ${tag})`);
+  if (!callback) throw new Error("LNURL response has no callback");
+  const minSat = Math.ceil(minSendable / 1000);
+  const maxSat = Math.floor(maxSendable / 1000);
+  if (amountSats < minSat || amountSats > maxSat) {
+    throw Object.assign(new Error(`Amount ${amountSats} sats out of allowed range (${minSat}–${maxSat} sats)`), { final: true });
+  }
+  let url = `${callback}${callback.includes("?") ? "&" : "?"}amount=${amountSats * 1000}`;
+  const maxComment = parseInt(commentAllowed) || 0;
+  if (memo && maxComment > 0) url += `&comment=${encodeURIComponent(memo.slice(0, maxComment))}`;
+  const inv = await safeFetch(url, { timeout: 15000 });
+  if (inv.data.status === "ERROR") {
+    throw Object.assign(new Error("Invoice error: " + inv.data.reason), { final: true });
+  }
+  if (!inv.data.pr) throw new Error("No invoice received");
+  return inv.data.pr;
+}
+
+async function blinkGraphql(apiKey, query, variables) {
+  const { data } = await safeFetch(BLINK_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-API-KEY": apiKey },
+    body: JSON.stringify({ query, variables })
+    // no timeout on purpose: giving up early on a payment call could hide a
+    // payment that actually went through
+  });
+  return data;
+}
+
 // ── LNURL bech32 decoder (no external library needed) ──
 function decodeLnurl(lnurl) {
   const CHARSET = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
@@ -665,119 +711,104 @@ app.post("/pay", ANY_LOGIN, async (req, res) => {
     const isLnAddress = dest.includes("@");
     const isLnurl = dest.toLowerCase().startsWith("lnurl");
  
-    // ── Lightning Address ──────────────────────────────────────────────────
+    // ── Work out where to fetch the invoice from ──────────────────────────
+    // Lightning Address name@domain → https://domain/.well-known/lnurlp/name (LUD-16).
+    // LNURL / Bolt Card → decode the bech32 string.
+    //
+    // We fetch the invoice ourselves and ask Blink to pay that invoice.
+    // Blink's lnAddressPaymentSend kept failing with "LNURL service unreachable
+    // or not allowed" (LNURL_REQUEST_INVOICE_ERROR) for addresses that resolve
+    // fine from this server, so it is now only a fallback.
+    let lnurlpUrl, kind;
     if (isLnAddress) {
-      console.log("Paying via Lightning Address:", dest);
-      const { data } = await safeFetch(BLINK_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-API-KEY": apiKey },
-        body: JSON.stringify({
-          query: `mutation LnAddressPaymentSend($input: LnAddressPaymentSendInput!) {
-            lnAddressPaymentSend(input: $input) { status errors { message code } }
-          }`,
-          variables: {
-            input: {
-              walletId: btcWallet.id,
-              lnAddress: dest,
-              amount: parseInt(amount)
-            }
-          }
-        })
-      });
+      kind = "Lightning Address";
+      try {
+        lnurlpUrl = lnAddressToUrl(dest);
+      } catch (e) {
+        logPayment({ paidBy, payTable, payId, recipientLabel, destination, amount, event: "failed", detail: e.message });
+        return res.status(400).json({ error: e.message });
+      }
+    } else if (isLnurl) {
+      kind = "Bolt Card / LNURL";
+      lnurlpUrl = decodeLnurl(dest);
+    } else {
+      return res.status(400).json({ error: "Unknown destination format. Use Lightning Address (name@domain) or LNURL." });
+    }
+    console.log(`Paying via ${kind}: ${dest} → ${lnurlpUrl}`);
+
+    let payStatus;
+    let paymentRequest = null;
+    try {
+      paymentRequest = await fetchLnurlInvoice(lnurlpUrl, parseInt(amount), paymentMemo);
+    } catch (e) {
+      console.error(`Invoice fetch failed for ${dest}: ${e.message}`);
+      if (!isLnAddress || e.final) {
+        logPayment({ paidBy, payTable, payId, recipientLabel, destination, amount, event: "failed", detail: "Invoice fetch: " + e.message });
+        await payFailEmail(destination, kind, parseInt(amount), e.message).catch(() => {});
+        return res.status(400).json({ error: e.message });
+      }
+    }
+
+    if (paymentRequest) {
+      // Pay the invoice we fetched ourselves
+      console.log("Got invoice, paying via Blink lnInvoicePaymentSend...");
+      const payData = await blinkGraphql(apiKey,
+        `mutation LnInvoicePaymentSend($input: LnInvoicePaymentInput!) {
+          lnInvoicePaymentSend(input: $input) { status errors { message code } }
+        }`,
+        { input: { walletId: btcWallet.id, paymentRequest, memo: paymentMemo } });
+      console.log("Blink invoice payment response:", JSON.stringify(payData).slice(0, 500));
+      if (payData.errors?.length) {
+        const msg = payData.errors.map(e => e.message).join(", ");
+        logPayment({ paidBy, payTable, payId, recipientLabel, destination, amount, event: "failed", detail: msg });
+        return res.status(400).json({ error: msg });
+      }
+      const r = payData?.data?.lnInvoicePaymentSend;
+      if (r?.errors?.length) {
+        const msg = r.errors.map(e => e.message + (e.code ? " (" + e.code + ")" : "")).join(", ");
+        logPayment({ paidBy, payTable, payId, recipientLabel, destination, amount, event: "failed", blinkStatus: r?.status, detail: msg });
+        await payFailEmail(destination, kind, parseInt(amount), msg).catch(() => {});
+        return res.status(400).json({ error: msg });
+      }
+      payStatus = r?.status;
+    } else {
+      // Fallback (Lightning Address only): our own invoice fetch failed before
+      // anything was sent, so let Blink try resolving the address itself.
+      console.log("Falling back to Blink lnAddressPaymentSend for", dest);
+      const data = await blinkGraphql(apiKey,
+        `mutation LnAddressPaymentSend($input: LnAddressPaymentSendInput!) {
+          lnAddressPaymentSend(input: $input) { status errors { message code } }
+        }`,
+        { input: { walletId: btcWallet.id, lnAddress: dest, amount: parseInt(amount) } });
       console.log("Blink LnAddress response:", JSON.stringify(data).slice(0, 500));
-      if (data.errors?.length) return res.status(400).json({ error: data.errors.map(e => e.message).join(", ") });
-      const result = data?.data?.lnAddressPaymentSend;
-      if (result?.errors?.length) return res.status(400).json({ error: result.errors.map(e => e.message + (e.code ? " (" + e.code + ")" : "")).join(", ") });
-      if (["SUCCESS", "ALREADY_PAID", "PENDING"].includes(result?.status)) {
-        if (whatsappNumber && callmebotApikey) {
-          sendWhatsAppPayment(whatsappNumber, callmebotApikey, staffName || "Staff", parseInt(amount)).catch(() => {});
-        }
-        if (telegramChatId) {
-          sendTelegramPayment(telegramChatId, staffName || "Staff", parseInt(amount)).catch(() => {});
-        }
-        return await recordPaymentAndRespond(res, { paidBy, hasGuard, payTable, payId, expectedPaid, amount, status: result.status, destination, recipientLabel });
+      if (data.errors?.length) {
+        const msg = data.errors.map(e => e.message).join(", ");
+        logPayment({ paidBy, payTable, payId, recipientLabel, destination, amount, event: "failed", detail: msg });
+        return res.status(400).json({ error: msg });
       }
-      const errMsg = "Payment status: " + result?.status;
-      logPayment({ paidBy, payTable, payId, recipientLabel, destination, amount, event: "failed", blinkStatus: result?.status, detail: errMsg });
-      await payFailEmail(destination, "Lightning Address", parseInt(amount), errMsg).catch(() => {});
-      return res.status(400).json({ error: errMsg });
+      const r = data?.data?.lnAddressPaymentSend;
+      if (r?.errors?.length) {
+        const msg = r.errors.map(e => e.message + (e.code ? " (" + e.code + ")" : "")).join(", ");
+        logPayment({ paidBy, payTable, payId, recipientLabel, destination, amount, event: "failed", blinkStatus: r?.status, detail: msg });
+        await payFailEmail(destination, kind, parseInt(amount), msg).catch(() => {});
+        return res.status(400).json({ error: msg });
+      }
+      payStatus = r?.status;
     }
- 
-    // ── LNURL / Bolt Card ─────────────────────────────────────────────────
-    if (isLnurl) {
-      console.log("Paying via LNURL (Bolt Card)");
- 
-      // Step 1: decode LNURL → callback URL
-      const callbackUrl = decodeLnurl(dest);
-      console.log("LNURL decoded to:", callbackUrl);
- 
-      // Step 2: fetch LNURL-pay params
-      const lnurlRes = await safeFetch(callbackUrl);
-      if (lnurlRes.data.status === "ERROR") {
-        return res.status(400).json({ error: "LNURL error: " + lnurlRes.data.reason });
+
+    if (["SUCCESS", "ALREADY_PAID", "PENDING"].includes(payStatus)) {
+      if (whatsappNumber && callmebotApikey) {
+        sendWhatsAppPayment(whatsappNumber, callmebotApikey, staffName || "Staff", parseInt(amount)).catch(() => {});
       }
-      const { callback, minSendable, maxSendable } = lnurlRes.data;
-      const amountMsat = parseInt(amount) * 1000;
-      const minSat = Math.ceil(minSendable / 1000);
-      const maxSat = Math.floor(maxSendable / 1000);
- 
-      console.log(`LNURL range: ${minSat}–${maxSat} sats, requesting: ${amount} sats`);
- 
-      if (parseInt(amount) < minSat || parseInt(amount) > maxSat) {
-        return res.status(400).json({
-          error: `Amount ${amount} sats out of allowed range (${minSat}–${maxSat} sats)`
-        });
+      if (telegramChatId) {
+        sendTelegramPayment(telegramChatId, staffName || "Staff", parseInt(amount)).catch(() => {});
       }
- 
-      // Step 3: fetch invoice from LNURL callback — include memo as comment
-      const encodedMemo = encodeURIComponent(paymentMemo);
-      const invoiceUrl = `${callback}${callback.includes("?") ? "&" : "?"}amount=${amountMsat}&comment=${encodedMemo}`;
-      const invoiceRes = await safeFetch(invoiceUrl);
-      if (invoiceRes.data.status === "ERROR") {
-        return res.status(400).json({ error: "Invoice error: " + invoiceRes.data.reason });
-      }
-      const paymentRequest = invoiceRes.data.pr;
-      if (!paymentRequest) {
-        return res.status(400).json({ error: "No invoice received from Bolt Card" });
-      }
-      console.log("Got invoice, paying via Blink...");
- 
-      // Step 4: pay the invoice via Blink — include memo
-      const { data: payData } = await safeFetch(BLINK_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-API-KEY": apiKey },
-        body: JSON.stringify({
-          query: `mutation LnInvoicePaymentSend($input: LnInvoicePaymentInput!) {
-            lnInvoicePaymentSend(input: $input) { status errors { message code } }
-          }`,
-          variables: {
-            input: {
-              walletId: btcWallet.id,
-              paymentRequest,
-              memo: paymentMemo
-            }
-          }
-        })
-      });
-      if (payData.errors?.length) return res.status(400).json({ error: payData.errors[0].message });
-      const payResult = payData?.data?.lnInvoicePaymentSend;
-      if (payResult?.errors?.length) return res.status(400).json({ error: payResult.errors[0].message });
-      if (["SUCCESS", "ALREADY_PAID", "PENDING"].includes(payResult?.status)) {
-        if (whatsappNumber && callmebotApikey) {
-          sendWhatsAppPayment(whatsappNumber, callmebotApikey, staffName || "Staff", parseInt(amount)).catch(() => {});
-        }
-        if (telegramChatId) {
-          sendTelegramPayment(telegramChatId, staffName || "Staff", parseInt(amount)).catch(() => {});
-        }
-        return await recordPaymentAndRespond(res, { paidBy, hasGuard, payTable, payId, expectedPaid, amount, status: payResult.status, destination, recipientLabel });
-      }
-      const boltErrMsg = "Payment failed: " + payResult?.status;
-      logPayment({ paidBy, payTable, payId, recipientLabel, destination, amount, event: "failed", blinkStatus: payResult?.status, detail: boltErrMsg });
-      await payFailEmail(destination, "Bolt Card / LNURL", parseInt(amount), boltErrMsg).catch(() => {});
-      return res.status(400).json({ error: boltErrMsg });
+      return await recordPaymentAndRespond(res, { paidBy, hasGuard, payTable, payId, expectedPaid, amount, status: payStatus, destination, recipientLabel });
     }
- 
-    return res.status(400).json({ error: "Unknown destination format. Use Lightning Address (name@domain) or LNURL." });
+    const errMsg = "Payment status: " + payStatus;
+    logPayment({ paidBy, payTable, payId, recipientLabel, destination, amount, event: "failed", blinkStatus: payStatus, detail: errMsg });
+    await payFailEmail(destination, kind, parseInt(amount), errMsg).catch(() => {});
+    return res.status(400).json({ error: errMsg });
  
   } catch (e) {
     console.error("Pay error:", e.message);
