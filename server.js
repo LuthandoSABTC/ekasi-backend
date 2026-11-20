@@ -394,15 +394,25 @@ function stackKeyOk(req) {
 }
 const REF_OK = /^[0-9a-fA-F-]{8,64}$/;
 
+// ── Student attendance rate ──
+// 500 sats per class day before RATE_CHANGE_DATE, 1000 sats per class day from it. Past days keep the old rate,
+// so nobody's earned total changes for days already attended. The admin and teacher pages use the same rule.
+const ATT_SATS = 1000;
+const OLD_ATT_SATS = 500;
+const RATE_CHANGE_DATE = "2026-11-16";
+const satsForDate = d => (String(d) >= RATE_CHANGE_DATE ? ATT_SATS : OLD_ATT_SATS);
+const satsForRows = rows => rows.reduce((sum, a) => sum + satsForDate(a.date), 0);
+
+
 // An approved reward becomes "paid" once the student's paid total has caught up with everything they have earned
-// (same sum the payout screen uses: attendance days x 500 + bonus).
+// (same sum the payout screen uses: attendance sats + bonus).
 async function settleRewards() {
   const approved = await supabase("GET", "stack_rewards", null, "?status=eq.approved&select=student_id");
   for (const sid of [...new Set(approved.map(r => r.student_id))]) {
     const [st] = await supabase("GET", "students", null, `?id=eq.${sid}&select=paid,bonus`);
     if (!st) continue;
-    const days = (await supabase("GET", "attendance", null, `?student_id=eq.${sid}&select=id`)).length;
-    if ((st.paid || 0) >= days * 500 + (st.bonus || 0)) {
+    const attRows = await supabase("GET", "attendance", null, `?student_id=eq.${sid}&select=date`);
+    if ((st.paid || 0) >= satsForRows(attRows) + (st.bonus || 0)) {
       await supabase("PATCH", "stack_rewards", { status: "paid" }, `?student_id=eq.${sid}&status=eq.approved`);
     }
   }
@@ -486,10 +496,10 @@ app.get("/public/leaderboard", async (req, res) => {
 app.get("/public/alumni", async (req, res) => {
   try {
     const students = await supabase("GET", "students", null, "?graduated=eq.true&order=graduated_at.asc&select=id,name,graduated_at");
-    const att = await supabase("GET", "attendance", null, "?select=student_id");
-    const days = {};
-    att.forEach(a => { days[a.student_id] = (days[a.student_id] || 0) + 1; });
-    res.json(students.map(s => ({ name: s.name, graduated_at: s.graduated_at, days: days[s.id] || 0 })));
+    const att = await supabase("GET", "attendance", null, "?select=student_id,date");
+    const days = {}, sats = {};
+    att.forEach(a => { days[a.student_id] = (days[a.student_id] || 0) + 1; sats[a.student_id] = (sats[a.student_id] || 0) + satsForDate(a.date); });
+    res.json(students.map(s => ({ name: s.name, graduated_at: s.graduated_at, days: days[s.id] || 0, sats: sats[s.id] || 0 })));
   } catch (e) { res.status(500).json({ error: "Unavailable" }); }
 });
 
@@ -502,16 +512,15 @@ app.get("/alumni", async (req, res) => {
   try {
     const studentsRaw = await supabase("GET", "students", null, "?status=eq.alumni&order=graduated_at.desc");
     const attendanceRaw = await supabase("GET", "attendance", null, "");
- 
-    const SATS = 500;
     const alumni = studentsRaw.map(s => {
-      const days = attendanceRaw.filter(a => a.student_id === s.id).length;
+      const rows = attendanceRaw.filter(a => a.student_id === s.id);
+      const days = rows.length;
       return {
         name: s.name,
         cohort: s.cohort || "Bitcoin Ekasi",
         graduatedAt: s.graduated_at || null,
         totalDays: days,
-        totalSats: days * SATS + (s.bonus || 0)
+        totalSats: satsForRows(rows) + (s.bonus || 0)
       };
     });
  
@@ -849,8 +858,6 @@ app.get("/weekly-recap.svg", async (req, res) => {
     const weekLabelEnd = new Date(weekDates[4] + "T00:00:00Z");
     const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
     const weekLabel = weekLabelStart.getUTCDate() + " " + monthNames[weekLabelStart.getUTCMonth()] + " \u2013 " + weekLabelEnd.getUTCDate() + " " + monthNames[weekLabelEnd.getUTCMonth()] + " " + weekLabelEnd.getUTCFullYear();
- 
-    const SATS = 500;
     const STAFF_SATS_PER_HOUR = 1300;
     const activeStudents = studentsRaw.filter(s => !s.status || s.status === "active");
  
@@ -859,9 +866,10 @@ app.get("/weekly-recap.svg", async (req, res) => {
     let perfectCount = 0;
     let mostImproved = null;
     activeStudents.forEach(s => {
-      const days = attendanceRaw.filter(a => a.student_id === s.id && weekDates.includes(a.date)).length;
+      const weekRows = attendanceRaw.filter(a => a.student_id === s.id && weekDates.includes(a.date));
+      const days = weekRows.length;
       totalWeekDays += days;
-      totalWeekSats += days * SATS;
+      totalWeekSats += satsForRows(weekRows);
       if (days >= 5) perfectCount++;
     });
     const activeCount = activeStudents.filter(s => attendanceRaw.some(a => a.student_id === s.id && weekDates.includes(a.date))).length;
@@ -969,14 +977,12 @@ async function sendDailySummary() {
     const pgPresentCount = pgStudentsRaw.filter(s => pgPresentIds.has(s.id)).length;
  
     // Sats owed
-    const SATS = 500;
     const STAFF_SATS_PER_HOUR = 1300;
     const SHACK_SATS = 28000;
  
     let studentOwed = 0;
     activeStudents.forEach(s => {
-      const attDays = attendanceRaw.filter(a => a.student_id === s.id).length;
-      const earned = attDays * SATS + (s.bonus || 0);
+      const earned = satsForRows(attendanceRaw.filter(a => a.student_id === s.id)) + (s.bonus || 0);
       studentOwed += Math.max(0, earned - (s.paid || 0));
     });
  
@@ -1129,8 +1135,6 @@ async function postWeeklyRecapToWhatsApp() {
     const weekLabelEnd = new Date(weekDates[4] + "T00:00:00Z");
     const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
     const weekLabel = weekLabelStart.getUTCDate() + " " + monthNames[weekLabelStart.getUTCMonth()] + "–" + weekLabelEnd.getUTCDate() + " " + monthNames[weekLabelEnd.getUTCMonth()] + " " + weekLabelEnd.getUTCFullYear();
- 
-    const SATS = 500;
     const STAFF_SATS_PER_HOUR = 1300;
     const activeStudents = studentsRaw.filter(s => !s.status || s.status === "active");
  
@@ -1140,8 +1144,9 @@ async function postWeeklyRecapToWhatsApp() {
     const perfectNames = [];
     const studentEarnings = [];
     activeStudents.forEach(s => {
-      const days = attendanceRaw.filter(a => a.student_id === s.id && weekDates.includes(a.date)).length;
-      const sats = days * SATS;
+      const weekRows = attendanceRaw.filter(a => a.student_id === s.id && weekDates.includes(a.date));
+      const days = weekRows.length;
+      const sats = satsForRows(weekRows);
       totalWeekDays += days;
       totalWeekSats += sats;
       if (days >= 4) { perfectCount++; perfectNames.push(s.name); }
@@ -1393,8 +1398,6 @@ async function sendWeeklySummary() {
     const weekLabelEnd = new Date(weekDates[4] + "T00:00:00Z");
     const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
     const weekLabel = weekLabelStart.getUTCDate() + " " + monthNames[weekLabelStart.getUTCMonth()] + " – " + weekLabelEnd.getUTCDate() + " " + monthNames[weekLabelEnd.getUTCMonth()] + " " + weekLabelEnd.getUTCFullYear();
- 
-    const SATS = 500;
     const STAFF_SATS_PER_HOUR = 1300;
  
     const activeStudents = studentsRaw.filter(s => !s.status || s.status === "active");
@@ -1407,7 +1410,7 @@ async function sendWeeklySummary() {
       const weekAtt = attendanceRaw.filter(a => a.student_id === s.id && weekDates.includes(a.date));
       const days = weekAtt.length;
       totalWeekDays += days;
-      totalWeekSats += days * SATS;
+      totalWeekSats += satsForRows(weekAtt);
       if (days >= 4) perfectStudents.push(s.name);
  
       const lastWeekAtt = attendanceRaw.filter(a => a.student_id === s.id && lastWeekDates.includes(a.date));
@@ -1436,8 +1439,7 @@ async function sendWeeklySummary() {
  
     let totalOwed = 0;
     activeStudents.forEach(s => {
-      const attDays = attendanceRaw.filter(a => a.student_id === s.id).length;
-      const earned = attDays * SATS + (s.bonus || 0);
+      const earned = satsForRows(attendanceRaw.filter(a => a.student_id === s.id)) + (s.bonus || 0);
       totalOwed += Math.max(0, earned - (s.paid || 0));
     });
     staffRaw.forEach(s => {
